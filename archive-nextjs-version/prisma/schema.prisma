@@ -1,0 +1,148 @@
+// Prisma schema for OTB Planner.
+// Datasource is SQLite for zero-config internal deployment.
+// To move to Postgres later: change provider to "postgresql" and set
+// DATABASE_URL to a postgres connection string. No model changes needed.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  planner
+  admin
+}
+
+enum Channel {
+  Retail
+  EC
+  Wholesale
+  Outlet
+}
+
+enum Season {
+  SS
+  FW
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  role         Role
+  createdAt    DateTime @default(now())
+
+  planningInputs PlanningInput[]
+  submissions    Submission[]
+  ownedStores    Store[]  @relation("StoreOwner")
+}
+
+model Store {
+  id        String   @id @default(cuid())
+  storeCode String   @unique
+  storeName String
+  brand     String
+  channel   Channel
+  market    String
+  currency  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The planner who owns this store's inputs ("own stores" in spec §1).
+  // Nullable so a newly created store can be assigned later; admins can
+  // see and edit all stores regardless of ownership.
+  ownerId String?
+  owner   User?   @relation("StoreOwner", fields: [ownerId], references: [id])
+
+  planningInputs PlanningInput[]
+  submissions    Submission[]
+}
+
+// One row per store per planning-season-pair "cycle" (identified by the
+// current season label at the time planning was generated, e.g. "FW26").
+// Holds all planner-entered inputs for both planning seasons plus the
+// current-season roll-forward inputs. Draft state; autosaved on edit.
+model PlanningInput {
+  id            String   @id @default(cuid())
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id])
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+
+  cycleLabel    String   // e.g. "FW26" — the current (finalized) season this plan was generated from
+  planningSeason1 String // e.g. "SS27"
+  planningSeason2 String // e.g. "FW27"
+
+  // current-season roll-forward inputs
+  currentOnHandInventory   Float  @default(0)
+  currentRemainingReceipts Float  @default(0)
+  currentDiscountPct       Float  @default(0)
+
+  // monthly net revenue forecast, JSON map of "YYYY-MM" -> number, spans
+  // current month through end of planning season 2
+  monthlyForecastJson String @default("{}")
+
+  // per planning season inputs (season 1 / season 2)
+  s1SellThroughPct Float @default(0)
+  s1DiscountPct    Float @default(0)
+  s1OnOrder        Float @default(0)
+  s1ManualSosOverride Float?
+
+  s2SellThroughPct Float @default(0)
+  s2DiscountPct    Float @default(0)
+  s2OnOrder        Float @default(0)
+  s2ManualSosOverride Float?
+
+  isLocked  Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, cycleLabel])
+}
+
+// Immutable versioned snapshot created on Submit. Stores full input set,
+// FX rates in effect, and computed outputs so history is reproducible.
+model Submission {
+  id           String   @id @default(cuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id])
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+
+  cycleLabel      String
+  planningSeason1 String
+  planningSeason2 String
+  version         Int
+  comment         String?
+
+  inputsJson   String   // full snapshot of PlanningInput fields
+  fxRatesJson  String   // FX rates in effect at submit time
+  outputsJson  String   // full computed engine output for both seasons
+
+  createdAt DateTime @default(now())
+
+  @@unique([storeId, cycleLabel, version])
+}
+
+model FxRate {
+  id          String   @id @default(cuid())
+  currency    String   @unique // e.g. "TWD" (rate is currency -> USD)
+  rateToUsd   Float
+  asOfDate    DateTime
+
+  updatedAt DateTime @updatedAt
+}
+
+// Freezes all drafts for a given planning season label (e.g. "SS27") so
+// planners can no longer edit inputs feeding that season.
+model SeasonLock {
+  id           String   @id @default(cuid())
+  seasonLabel  String   @unique // e.g. "SS27"
+  locked       Boolean  @default(false)
+  lockedAt     DateTime?
+}
