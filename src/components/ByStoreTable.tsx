@@ -6,6 +6,18 @@ interface ByStoreTableProps {
   rows: OtbSeasonRow[];
 }
 
+function transferTooltip(r: OtbSeasonRow): string {
+  const amount = formatAmount(Math.abs(r.transferAdjustment));
+  if (r.isOutlet) {
+    return r.transferAdjustment < 0
+      ? `${amount} received via transfer from full-price stores`
+      : `${amount} surplus credited back to full-price stores in this brand+market`;
+  }
+  return r.transferAdjustment > 0
+    ? `${amount} supplied to a needy outlet in this brand+market`
+    : `${amount} credited from an outlet's surplus in this brand+market`;
+}
+
 type SortKey = keyof Pick<
   OtbSeasonRow,
   | "storeName"
@@ -152,11 +164,7 @@ export function ByStoreTable({ rows }: ByStoreTableProps) {
                   {r.transferAdjustment !== 0 && (
                     <span
                       className="ml-1 rounded bg-teal-100 px-1 text-[10px] text-teal-700"
-                      title={
-                        r.transferAdjustment > 0
-                          ? `${formatAmount(r.transferAdjustment)} transferred to an outlet in this brand+market`
-                          : `${formatAmount(-r.transferAdjustment)} received via transfer from full-price stores`
-                      }
+                      title={transferTooltip(r)}
                     >
                       transfer
                     </span>

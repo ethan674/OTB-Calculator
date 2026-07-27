@@ -21,11 +21,15 @@ export function FxRatesEditor({ fxRates, onChange, usedCurrencies }: FxRatesEdit
     setNewRate("");
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") addRate();
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-slate-500">
-        Used to convert store-level OTB into USD whenever an aggregate (brand, channel, market, grand total, or the chart)
-        spans more than one currency. Not needed for stores that share a single currency.
+        Used to convert store-level OTB into USD whenever an aggregate (brand, channel, market, or grand total) spans
+        more than one currency. Not needed for stores that share a single currency.
       </p>
 
       {missingCurrencies.length > 0 && (
@@ -41,6 +45,7 @@ export function FxRatesEditor({ fxRates, onChange, usedCurrencies }: FxRatesEdit
           <input
             value={newCurrency}
             onChange={(e) => setNewCurrency(e.target.value.toUpperCase())}
+            onKeyDown={handleKeyDown}
             placeholder="e.g. TWD"
             maxLength={3}
             className="w-20 rounded border border-slate-300 px-2 py-1 text-sm uppercase"
@@ -51,6 +56,7 @@ export function FxRatesEditor({ fxRates, onChange, usedCurrencies }: FxRatesEdit
           <input
             value={newRate}
             onChange={(e) => setNewRate(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="e.g. 0.031"
             inputMode="decimal"
             className="w-28 rounded border border-slate-300 px-2 py-1 text-sm"

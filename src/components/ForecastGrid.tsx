@@ -152,7 +152,9 @@ export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProp
         <tbody>
           {stores.map((store, row) => (
             <tr key={store.id} className={row % 2 === 1 ? "bg-slate-50/50" : ""}>
-              <td className="sticky left-0 z-10 min-w-[220px] border-b border-r border-slate-200 bg-inherit px-3 py-1.5 align-top">
+              <td
+                className={`sticky left-0 z-10 min-w-[220px] border-b border-r border-slate-200 px-3 py-1.5 align-top ${row % 2 === 1 ? "bg-slate-50" : "bg-white"}`}
+              >
                 <div className="font-medium text-slate-800">{store.storeName || "(unnamed store)"}</div>
                 <div className="text-xs text-slate-400">
                   {store.market} · {store.currency}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { buildMonthlyHorizon, getPlanningSeasons } from "@/lib/otb-engine";
 import type { FxRateMap } from "@/lib/otb-engine";
 import { computeStoreResult, sumHorizonBucket } from "@/lib/storePlan";
@@ -14,11 +14,11 @@ import { ForecastGrid } from "@/components/ForecastGrid";
 import { AssumptionsTable } from "@/components/AssumptionsTable";
 import { FxRatesEditor } from "@/components/FxRatesEditor";
 import { SeasonSummaryCards } from "@/components/SeasonSummaryCards";
+import { BadgeLegend } from "@/components/BadgeLegend";
 import { CurrentSeasonTable } from "@/components/CurrentSeasonTable";
-import { OtbByBrandTable } from "@/components/OtbByBrandTable";
 import { ByStoreTable } from "@/components/ByStoreTable";
 import { AggregateTables } from "@/components/AggregateTables";
-import { buildOtbWorkbook, downloadWorkbook, buildCsv, downloadCsv } from "@/lib/export";
+import { buildOtbWorkbook, downloadWorkbook, buildCsv, downloadCsv, readWorkbookFile, parseImportedWorkbook } from "@/lib/export";
 
 type Tab = "stores" | "inventory" | "forecast" | "assumptions" | "fx" | "results";
 
@@ -37,6 +37,8 @@ export default function App() {
   const [fxRates, setFxRates] = useState<FxRateMap>({});
   const [tab, setTab] = useState<Tab>("stores");
   const [resultsSeasonTab, setResultsSeasonTab] = useState<"s1" | "s2">("s1");
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { current, planning1, planning2 } = useMemo(() => getPlanningSeasons(new Date()), []);
   const horizon = useMemo(() => buildMonthlyHorizon(new Date()), []);
@@ -148,6 +150,9 @@ export default function App() {
 
   function handleExportExcel() {
     const wb = buildOtbWorkbook({
+      stores,
+      brandInventory,
+      horizon,
       season1Rows,
       season2Rows,
       planning1Label: planning1.label,
@@ -160,6 +165,26 @@ export default function App() {
 
   function handleExportCsv() {
     downloadCsv(buildCsv(activeRows), `otb-calculator_${activeLabel}.csv`);
+  }
+
+  function handleImportClick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const wb = await readWorkbookFile(file);
+      const imported = parseImportedWorkbook(wb);
+      setStores(imported.stores);
+      setBrandInventory(imported.brandInventory);
+      setFxRates(imported.fxRates);
+      setImportError(null);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Could not read this file — make sure it's an OTB Calculator export.");
+    }
   }
 
   const usedCurrencies = useMemo(() => Array.from(new Set(stores.map((s) => s.currency))).filter(Boolean), [stores]);
@@ -185,6 +210,19 @@ export default function App() {
             </nav>
           </div>
           <div className="flex gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+            <button
+              onClick={handleImportClick}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Import Excel
+            </button>
             <button
               onClick={loadSampleData}
               className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
@@ -203,6 +241,11 @@ export default function App() {
           Current: {current.label} (finalized) → Planning: {planning1.label}, {planning2.label} · Nothing is saved —
           refreshing the page resets everything.
         </div>
+        {importError && (
+          <div className="border-t border-red-200 bg-red-50 px-4 py-1.5 text-xs font-medium text-red-700">
+            Import failed: {importError}
+          </div>
+        )}
       </header>
 
       <main className="px-4 py-6">
@@ -278,21 +321,10 @@ export default function App() {
             {stores.length > 0 && (
               <>
                 <SeasonSummaryCards rows={activeRows} seasonLabel={activeLabel} fxRates={fxRates} />
+                <BadgeLegend />
                 <CurrentSeasonTable rows={currentSeasonRows} currentLabel={current.label} />
-                <OtbByBrandTable
-                  season1Rows={season1Rows}
-                  season2Rows={season2Rows}
-                  planning1Label={planning1.label}
-                  planning2Label={planning2.label}
-                  fxRates={fxRates}
-                />
                 <div>
                   <h3 className="mb-2 text-sm font-semibold text-slate-700">By-Store Detail — {activeLabel}</h3>
-                  <p className="mb-2 text-xs text-slate-500">
-                    Outlet stores (blue badge) don't buy new-season product — if they need stock, it's transferred from
-                    full-price stores in the same brand+market group (teal "transfer" badge on SoS Inv), so the outlet's
-                    own OTB nets to 0 and the totals above already reflect who's actually doing the buying.
-                  </p>
                   <ByStoreTable rows={activeRows} />
                 </div>
                 <div>

@@ -70,7 +70,7 @@ describe("applyOutletTransfers", () => {
     expect(o.otb).toBe(0);
   });
 
-  it("does not transfer when the outlet's OTB is negative (already overstocked)", () => {
+  it("credits a surplus outlet's OTB back to its full-price peer, reducing that store's OTB", () => {
     const rows = [
       makeRow({ storeId: "F", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 100, sosInventory: 500 }),
       makeRow({ storeId: "O", brand: "Acme", market: "Taiwan", isOutlet: true, otb: -20, sosInventory: 999 }),
@@ -81,12 +81,52 @@ describe("applyOutletTransfers", () => {
     const f = result.find((r) => r.storeId === "F")!;
     const o = result.find((r) => r.storeId === "O")!;
 
-    expect(f.otb).toBe(100);
-    expect(f.sosInventory).toBe(500);
+    // Net outlet position is -20 (a surplus, not a need), so it credits F: OTB drops, SOS rises.
+    expect(f.otb).toBeCloseTo(80, 6);
+    expect(f.sosInventory).toBeCloseTo(520, 6);
+    expect(f.transferAdjustment).toBeCloseTo(-20, 6);
+
+    // The outlet's own OTB still lands at exactly 0 — its surplus doesn't sit unaccounted for.
+    expect(o.otb).toBe(0);
+    expect(o.sosInventory).toBeCloseTo(979, 6);
+    expect(o.transferAdjustment).toBeCloseTo(20, 6);
+  });
+
+  it("nets a needy outlet against a surplus outlet before touching full-price stores", () => {
+    const rows = [
+      makeRow({ storeId: "F", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 200, sosInventory: 1000 }),
+      makeRow({ storeId: "O1", brand: "Acme", market: "Taiwan", isOutlet: true, otb: 40, sosInventory: 5 }), // needs 40
+      makeRow({ storeId: "O2", brand: "Acme", market: "Taiwan", isOutlet: true, otb: -40, sosInventory: 500 }), // surplus 40
+    ];
+    const result = applyOutletTransfers(rows, { F: 1, O1: 0, O2: 0 });
+
+    const f = result.find((r) => r.storeId === "F")!;
+    const o1 = result.find((r) => r.storeId === "O1")!;
+    const o2 = result.find((r) => r.storeId === "O2")!;
+
+    // Net outlet position is 40 + (-40) = 0, so F is untouched even though both outlets moved.
+    expect(f.otb).toBe(200);
     expect(f.transferAdjustment).toBe(0);
-    expect(o.otb).toBe(-20);
-    expect(o.sosInventory).toBe(999);
-    expect(o.transferAdjustment).toBe(0);
+    expect(o1.otb).toBe(0);
+    expect(o2.otb).toBe(0);
+  });
+
+  it("splits a net surplus credit across multiple full-price peers by their shares", () => {
+    const rows = [
+      makeRow({ storeId: "F1", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 100, sosInventory: 500 }),
+      makeRow({ storeId: "F2", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 50, sosInventory: 300 }),
+      makeRow({ storeId: "O", brand: "Acme", market: "Taiwan", isOutlet: true, otb: -50, sosInventory: 900 }),
+    ];
+    // F1:F2 = 0.3:0.2 -> weights 0.6 / 0.4
+    const result = applyOutletTransfers(rows, { F1: 0.3, F2: 0.2, O: 0.5 });
+
+    const f1 = result.find((r) => r.storeId === "F1")!;
+    const f2 = result.find((r) => r.storeId === "F2")!;
+
+    expect(f1.transferAdjustment).toBeCloseTo(-30, 6); // -50 * 0.6
+    expect(f2.transferAdjustment).toBeCloseTo(-20, 6); // -50 * 0.4
+    expect(f1.otb).toBeCloseTo(70, 6);
+    expect(f2.otb).toBeCloseTo(30, 6);
   });
 
   it("does not transfer when the group has no full-price peer", () => {
@@ -139,6 +179,27 @@ describe("applyOutletTransfers", () => {
     const before = sumOtb(rows);
     const after = sumOtb(applyOutletTransfers(rows, shares));
     expect(after).toBeCloseTo(before, 6);
+  });
+
+  it("conserves the group's grand total OTB even with a surplus outlet in the mix", () => {
+    const rows = [
+      makeRow({ storeId: "F1", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 100, sosInventory: 500 }),
+      makeRow({ storeId: "F2", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 50, sosInventory: 300 }),
+      makeRow({ storeId: "O1", brand: "Acme", market: "Taiwan", isOutlet: true, otb: 40, sosInventory: 5 }),
+      makeRow({ storeId: "O2", brand: "Acme", market: "Taiwan", isOutlet: true, otb: -90, sosInventory: 900 }),
+    ];
+    const shares = { F1: 0.3, F2: 0.2, O1: 0.35, O2: 0.15 };
+    const before = sumOtb(rows);
+    const result = applyOutletTransfers(rows, shares);
+    const after = sumOtb(result);
+    expect(after).toBeCloseTo(before, 6);
+
+    // Every outlet lands at exactly 0, regardless of whether it started as a need or a surplus.
+    expect(result.find((r) => r.storeId === "O1")!.otb).toBe(0);
+    expect(result.find((r) => r.storeId === "O2")!.otb).toBe(0);
+    // Net outlet position is 40 - 90 = -50, a net surplus, so full-price stores' combined OTB drops by 50.
+    const fullPriceOtbAfter = result.find((r) => r.storeId === "F1")!.otb + result.find((r) => r.storeId === "F2")!.otb;
+    expect(fullPriceOtbAfter).toBeCloseTo(150 - 50, 6);
   });
 
   it("handles multiple outlets in one group, each zeroed out and fully covered", () => {

@@ -2,7 +2,7 @@
 
 A single-page Open-to-Buy (OTB) budget calculator for a multi-brand sports retail distribution company. Add stores, enter monthly revenue forecasts and season assumptions, and see computed OTB budgets per store and in aggregate — all in one sitting.
 
-**Fully client-side. No server, no database, no login.** Everything lives in memory in your browser tab; refreshing the page resets it. It's a template/calculator, not a system of record — use "Export Excel" or "Export CSV" to save a result you want to keep.
+**Fully client-side. No server, no database, no login.** Everything lives in memory in your browser tab; refreshing the page resets it. It's a template/calculator, not a system of record — use "Export Excel" to save a result you want to keep, and "Import Excel" to load it back in later (see "Export & Import" below).
 
 ## Run it
 
@@ -32,7 +32,16 @@ npm run build
 3. **Monthly Forecast** — a spreadsheet-style grid, one row per store, one column per month. Supports paste from Excel (select a block in Excel, copy, click the top-left target cell here, paste) and arrow-key/Enter navigation between cells.
 4. **Store Assumptions** — per-store, per-season inputs: incoming goods, discount %, sell-through %, and an optional manual SOS override. Current On-Hand Inv. is shown read-only here — it's derived from the Brand Inventory tab.
 5. **FX Rates** — only needed if your stores span more than one currency; add a currency → USD rate here so aggregates spanning multiple currencies can convert.
-6. **OTB Results** — the computed output: season summary cards, a current-season roll-forward table, an OTB-by-brand table, a sortable/filterable by-store table, and channel/brand/market aggregates. Export to Excel (both planning seasons + a summary sheet) or CSV.
+6. **OTB Results** — the computed output: season summary cards (Total OTB, Total Target, Forecast SoS Inventory, Blended Discount %, Forecast Sell-Through %, Forecast EoS Inventory), a current-season roll-forward table, a sortable/filterable by-store table, and channel/brand/market aggregates (which cover the by-brand breakdown too). Export to Excel (both planning seasons + a summary sheet) or CSV.
+
+## Export & Import
+
+Since nothing persists across a refresh, **Export Excel** doubles as the app's save file — it's a complete snapshot, not just a report:
+
+- **Computed output** — the same `Summary` / `SS27` / `FW27` sheets as before, with the full formula chain per store plus channel/brand/market aggregates.
+- **Raw inputs** — five additional sheets (`Stores`, `Brand Inventory`, `Monthly Forecast`, `Store Assumptions`, `FX Rates`) covering every editable field in the app: store metadata, the on-hand pool per brand+market, every month's forecast across the full horizon (not just the two planning seasons), every assumption field per store per season, and FX rates. Nothing you can type into the app is missing from the export.
+
+**Import Excel** (next to Load Sample Data / Clear All) reads those five input sheets back and replaces the app's current state — stores, brand inventory, and FX rates — reconstructing exactly what was exported, monthly forecast included. It only reads the raw-input sheets; the computed Summary/season sheets are ignored on import since everything in them re-derives from the inputs. If the file doesn't look like an OTB Calculator export (missing the `Stores` sheet, or no store rows in it), you get a clear error message instead of a silent failure or a crash. See `buildOtbWorkbook` / `parseImportedWorkbook` in `src/lib/export.ts`.
 
 ## Tech stack
 
@@ -90,24 +99,26 @@ Each store has an independent **Store Type** (Full-Price / Outlet) on the Stores
 
 - Outlet stores don't receive new-season buys, so their **Incoming Goods (Next Season)** and **Incoming Goods (Following Season)** fields are locked to 0 and disabled on the Store Assumptions tab (also enforced defensively in `toStorePlanInputs` in `src/lib/storePlan.ts`, regardless of what's in state).
 - They still run through the exact same OTB formula as full-price stores — with On-Order forced to 0, the resulting figure represents **stock needed to operate**, not a new purchase.
-- That figure is **excluded from the OTB budget**: the Total OTB summary card, the OTB column in Aggregates, and OTB by Brand all skip outlet stores. Everything else (Target, Forecast SoS/EoS Inventory, the Current Season table, and their own By-Store Detail row) still includes them, since those reflect real inventory/sales activity, not new-buy dollars. Outlet rows carry a blue "Outlet" badge wherever they appear. See `groupAndAggregate` and `computeSeasonSummary` in `src/lib/results.ts`.
+- That figure is **excluded from the OTB budget**: the Total OTB summary card and the OTB column in Aggregates both skip outlet stores. Everything else (Target, Forecast SoS/EoS Inventory, the Current Season table, and their own By-Store Detail row) still includes them, since those reflect real inventory/sales activity, not new-buy dollars. Outlet rows carry a blue "Outlet" badge wherever they appear. See `groupAndAggregate` and `computeSeasonSummary` in `src/lib/results.ts`.
 
-### Where an outlet's need actually goes
+### Where an outlet's need (or surplus) actually goes
 
-An outlet still has a sell-through target, so a positive OTB there is real, unmet demand — and since it can't place a new order, that demand has to be covered by **transfer** from the full-price stores in the same brand+market group (`src/lib/outletTransfer.ts`, applied independently per season):
+An outlet still has a sell-through target, so a positive OTB there is real, unmet demand — and a **negative** OTB there is real surplus it's already sitting on, from the exact same shared brand+market inventory pool everyone else draws from. Neither should just sit unfunded (or discarded) on the outlet's own row: both net against the full-price stores in the same brand+market group (`src/lib/outletTransfer.ts`, applied independently per season):
 
 ```
-outlet need = sum of positive OTB across outlets in the brand+market group
-each full-price store absorbs: outlet need × (its on-hand-allocation share ÷ sum of shares among full-price stores in the group)
-that store's SOS drops by its absorbed amount; its OTB rises by the same amount
+net outlet position = sum of OTB across every outlet in the brand+market group (need and surplus both, signs included)
+each full-price store absorbs: net outlet position × (its on-hand-allocation share ÷ sum of shares among full-price stores in the group)
+that store's SOS moves by its absorbed amount; its OTB moves by the same amount in the opposite direction
   (OTB = Total Available − SOS − On-Order, and neither Total Available nor Target EOS depend on SOS,
   so this is the only place a transfer needs to touch)
-the outlet's own SOS rises by the amount it received, landing its OTB at exactly 0
+every outlet's own SOS moves by its own OTB, landing its OTB at exactly 0
 ```
 
-The upshot: the group's **grand total OTB is unchanged** by the outlet/full-price distinction — the same total dollars need spending either way — only *who's* responsible for placing the order shifts, from the outlet (which can't buy) onto the full-price stores that will actually supply it. Rows touched by this get a teal "transfer" badge next to SoS Inv (hover for the amount and direction), and the CSV/Excel export includes a `Transfer Adjustment` column.
+If the net position is positive, full-price SOS drops and OTB rises (they're funding real outlet demand). If it's negative, full-price SOS rises and OTB drops (an outlet's surplus is credited back, reducing what the group needs to buy) — a surplus at one outlet nets against a need at another before either reaches the full-price stores at all. Either way, every outlet lands at OTB = 0 — it never carries a need or a surplus on its own books once it has a full-price peer to net against.
 
-An outlet with a **negative** OTB (already overstocked) triggers no transfer and has no effect on other stores — its own row just shows the negative figure as-is, same as any other overbought/understocked case. In practice this shouldn't come up much: on-hand inventory is allocated to the outlet proportionally to its current-season sales share, and SOS floors at 0 whenever projected sell-down exceeds on-hand stock (the common case in this data), which alone guarantees a non-negative OTB. It's not a hard guarantee though — an unusually large brand+market pool relative to the outlet's own next-season demand could still produce one. If it does, the behavior above is intentional, not a gap to fix: transfers were treated as one-directional (full-price → outlet) by design, not automatic in both directions.
+The upshot: the group's **grand total OTB is unchanged** by the outlet/full-price distinction — the same total dollars need spending either way (whether that total is higher, because outlets need funding, or lower, because outlets are crediting back surplus) — only *who's* responsible for placing the order shifts, from the outlet (which can't buy) onto the full-price stores that will actually supply it or benefit from the credit. Rows touched by this get a teal "transfer" badge next to SoS Inv (hover for the amount and direction), and the CSV/Excel export includes a `Transfer Adjustment` column.
+
+An outlet with **no full-price peer** in its brand+market group has nowhere to net against, so it's left untouched — its own row just shows its raw OTB as-is (positive or negative), same as any other store, and is still excluded from the OTB budget totals per the rule above.
 
 ## Currency rule
 

@@ -47,6 +47,7 @@ export function SeasonSummaryCards({ rows, seasonLabel, fxRates }: SeasonSummary
         />
         <Card label="Total Target" value={<AmountValue result={summary.totalNetTarget} />} />
         <Card label="Forecast SoS Inventory" value={<AmountValue result={summary.totalSos} />} />
+        <Card label="Blended Discount %" value={formatPercent(summary.weightedAvgDiscount)} />
         <Card label="Forecast Sell-Through %" value={formatPercent(summary.weightedAvgSellThrough)} />
         <Card label="Forecast EoS Inventory" value={<AmountValue result={summary.totalEos} />} />
       </div>

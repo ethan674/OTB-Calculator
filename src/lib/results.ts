@@ -89,21 +89,6 @@ export function groupAndAggregate(
     .sort((a, b) => a.groupKey.localeCompare(b.groupKey));
 }
 
-/** Always converts to USD (for charting, where every bar must share one unit), reporting any missing rates. */
-export function sumToUsd(items: { value: number; currency: string }[], fxRates: FxRateMap): { value: number; missingCurrencies: string[] } {
-  const missing = new Set<string>();
-  let value = 0;
-  for (const item of items) {
-    const rate = fxRates[item.currency];
-    if (rate === undefined) {
-      missing.add(item.currency);
-      continue;
-    }
-    value += item.value * rate;
-  }
-  return { value, missingCurrencies: Array.from(missing) };
-}
-
 export interface SeasonSummary {
   /** Excludes outlet stores. */
   totalOtb: AggregateResult;

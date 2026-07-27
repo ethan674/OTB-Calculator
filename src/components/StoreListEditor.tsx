@@ -14,6 +14,7 @@ function TextCell({ value, onChange, width = "w-32" }: { value: string; onChange
     <input
       type="text"
       defaultValue={value}
+      title={value}
       onBlur={(e) => {
         if (e.target.value !== value) onChange(e.target.value);
       }}
@@ -52,7 +53,7 @@ export function StoreListEditor({ stores, onFieldChange, onMarketChange, onAddSt
             {stores.map((store, i) => (
               <tr key={store.id} className={i % 2 === 1 ? "bg-slate-50/50" : ""}>
                 <td className="border-b border-slate-100 px-3 py-1.5">
-                  <TextCell value={store.storeName} onChange={(v) => onFieldChange(store.id, "storeName", v)} width="w-48" />
+                  <TextCell value={store.storeName} onChange={(v) => onFieldChange(store.id, "storeName", v)} width="w-64" />
                 </td>
                 <td className="border-b border-slate-100 px-3 py-1.5">
                   <TextCell value={store.brand} onChange={(v) => onFieldChange(store.id, "brand", v)} width="w-32" />
