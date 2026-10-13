@@ -5,9 +5,13 @@ interface BrandInventoryEditorProps {
   stores: CalcStore[];
   brandInventory: Record<string, number>;
   onChange: (key: string, value: number) => void;
+  /** Per brand+market: expected % change in sales after the last planning season vs. that season. */
+  brandOutlook: Record<string, number>;
+  onOutlookChange: (key: string, value: number | null) => void;
+  lastSeasonLabel: string;
 }
 
-export function BrandInventoryEditor({ stores, brandInventory, onChange }: BrandInventoryEditorProps) {
+export function BrandInventoryEditor({ stores, brandInventory, onChange, brandOutlook, onOutlookChange, lastSeasonLabel }: BrandInventoryEditorProps) {
   const groups = getBrandMarketGroups(stores);
 
   if (groups.length === 0) {
@@ -39,6 +43,9 @@ export function BrandInventoryEditor({ stores, brandInventory, onChange }: Brand
                 Total Current On-Hand Inv. (SRP Value)
               </th>
               <th className="border-b border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-600">Currency</th>
+              <th className="border-b border-slate-200 bg-white px-3 py-2 text-right text-xs font-semibold text-slate-600">
+                Sales after {lastSeasonLabel} vs. {lastSeasonLabel} (%)
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -60,11 +67,34 @@ export function BrandInventoryEditor({ stores, brandInventory, onChange }: Brand
                   />
                 </td>
                 <td className="border-b border-slate-100 px-3 py-1.5 text-slate-600">{g.currency}</td>
+                <td className="border-b border-slate-100 px-3 py-1.5">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    defaultValue={brandOutlook[g.key] ?? ""}
+                    placeholder="0"
+                    title={`Expected change in this brand's monthly sales after ${lastSeasonLabel}, vs. ${lastSeasonLabel}. Sizes ${lastSeasonLabel}'s target ending inventory. Blank = same as ${lastSeasonLabel}.`}
+                    onBlur={(e) => {
+                      const raw = e.target.value.trim();
+                      if (raw === "") return onOutlookChange(g.key, null);
+                      const num = Number(raw);
+                      if (Number.isFinite(num)) onOutlookChange(g.key, num);
+                    }}
+                    className="num-cell w-full min-w-[90px] rounded border border-slate-200 px-2 py-1 text-sm outline-none focus:border-slate-400"
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-slate-500">
+        <span className="font-medium text-slate-600">Sales after {lastSeasonLabel}:</span> {lastSeasonLabel}'s ending
+        inventory has to cover the demand of the season that follows it, but nothing is forecast beyond {lastSeasonLabel}.
+        Enter how much that brand's monthly sales are expected to differ after {lastSeasonLabel} (e.g. −15 or 10); blank
+        means the same as {lastSeasonLabel}. A single store can override it with its own average monthly sales on the
+        Monthly Forecast tab.
+      </p>
       <p className="text-xs text-slate-400">
         See each store's resulting share on the Store Assumptions tab (Current On-Hand Inv. column, read-only there).
       </p>

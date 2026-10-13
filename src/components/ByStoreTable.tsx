@@ -6,6 +6,22 @@ interface ByStoreTableProps {
   rows: OtbSeasonRow[];
 }
 
+function eosTooltip(r: OtbSeasonRow): string | undefined {
+  const excess = Math.max(0, r.eosInventory - r.targetEosInventory);
+  if (excess > 0.005) {
+    const target = r.targetEosInventory > 0.005 ? `Target ${formatAmount(r.targetEosInventory)} + ` : "";
+    return `${target}${formatAmount(excess)} overbought excess — carries into next season's SoS`;
+  }
+  if (r.targetEosInventory > 0.005) return "Target ending inventory the open buy is sized to reach";
+  return undefined;
+}
+
+function sortValue(r: OtbSeasonRow, key: SortKey): string | number {
+  if (key === "sosInventory") return sosBeforeTransfer(r);
+  if (key === "transferAdjustment") return transferInOut(r);
+  return r[key];
+}
+
 function transferTooltip(r: OtbSeasonRow): string {
   const amount = formatAmount(Math.abs(r.transferAdjustment));
   if (r.isOutlet) {
@@ -18,6 +34,21 @@ function transferTooltip(r: OtbSeasonRow): string {
     : `${amount} credited from an outlet's surplus in this brand+market`;
 }
 
+/**
+ * SoS is shown before any outlet transfer, so it ties back to last season's
+ * EoS; the transfer has its own column. A row's stored SoS is after the
+ * transfer, and transferAdjustment is the amount that moved out (full-price
+ * supplier, +) or in (outlet, −) — so adding it back gives the pre-transfer SoS.
+ */
+function sosBeforeTransfer(r: OtbSeasonRow): number {
+  return r.sosInventory + r.transferAdjustment;
+}
+
+/** Stock moved in (+) or out (−) of this store by the transfer: the effect on SoS. */
+function transferInOut(r: OtbSeasonRow): number {
+  return -r.transferAdjustment;
+}
+
 type SortKey = keyof Pick<
   OtbSeasonRow,
   | "storeName"
@@ -25,9 +56,11 @@ type SortKey = keyof Pick<
   | "discountValue"
   | "grossSalesValue"
   | "sosInventory"
+  | "transferAdjustment"
   | "onOrder"
+  | "totalAvailable"
   | "sellThroughPct"
-  | "targetEosInventory"
+  | "eosInventory"
   | "otb"
 >;
 
@@ -37,9 +70,11 @@ const COLUMNS: { key: SortKey; label: string; kind: "text" | "amount" | "percent
   { key: "discountValue", label: "Discount Value", kind: "amount" },
   { key: "grossSalesValue", label: "Gross", kind: "amount" },
   { key: "sosInventory", label: "SoS Inv", kind: "amount" },
+  { key: "transferAdjustment", label: "Transfer In/(Out)", kind: "amount" },
   { key: "onOrder", label: "Incoming Goods", kind: "amount" },
+  { key: "totalAvailable", label: "Total Available", kind: "amount" },
   { key: "sellThroughPct", label: "Sell-Through", kind: "percent" },
-  { key: "targetEosInventory", label: "EoS Inv", kind: "amount" },
+  { key: "eosInventory", label: "EoS Inv", kind: "amount" },
   { key: "otb", label: "Store OTB", kind: "amount" },
 ];
 
@@ -98,8 +133,8 @@ export function ByStoreTable({ rows }: ByStoreTableProps) {
   const sorted = useMemo(() => {
     const copy = [...filtered];
     copy.sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
+      const av = sortValue(a, sortKey);
+      const bv = sortValue(b, sortKey);
       const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -158,25 +193,43 @@ export function ByStoreTable({ rows }: ByStoreTableProps) {
                 <td className="num-cell border-b border-slate-100 px-3 py-1.5">{formatAmount(r.discountValue)}</td>
                 <td className="num-cell border-b border-slate-100 px-3 py-1.5">{formatAmount(r.grossSalesValue)}</td>
                 <td className="num-cell border-b border-slate-100 px-3 py-1.5">
-                  {formatAmount(r.sosInventory)}
+                  {formatAmount(sosBeforeTransfer(r))}
                   {r.sosOverridden && <span className="ml-1 rounded bg-purple-100 px-1 text-[10px] text-purple-700">override</span>}
                   {r.sosFloored && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700">floored</span>}
-                  {r.transferAdjustment !== 0 && (
-                    <span
-                      className="ml-1 rounded bg-teal-100 px-1 text-[10px] text-teal-700"
-                      title={transferTooltip(r)}
-                    >
-                      transfer
-                    </span>
-                  )}
+                </td>
+                <td
+                  className={`num-cell border-b border-slate-100 px-3 py-1.5 ${transferInOut(r) > 0 ? "text-teal-700" : ""}`}
+                  title={r.transferAdjustment !== 0 ? transferTooltip(r) : undefined}
+                >
+                  {r.transferAdjustment !== 0 ? formatAmount(transferInOut(r)) : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="num-cell border-b border-slate-100 px-3 py-1.5">{formatAmount(r.onOrder)}</td>
-                <td className="num-cell border-b border-slate-100 px-3 py-1.5">{formatPercent(r.sellThroughPct)}</td>
-                <td className="num-cell border-b border-slate-100 px-3 py-1.5">{formatAmount(r.targetEosInventory)}</td>
+                <td className="num-cell border-b border-slate-100 px-3 py-1.5">{formatAmount(r.totalAvailable)}</td>
+                <td
+                  className="num-cell border-b border-slate-100 px-3 py-1.5"
+                  title={r.buyLocked ? "Buy locked (incoming goods filled in) — derived from the stock held" : "Open buy — derived; OTB is sized to the target sell-through"}
+                >
+                  {formatPercent(r.sellThroughPct)}
+                </td>
+                <td
+                  className="num-cell border-b border-slate-100 px-3 py-1.5"
+                  title={eosTooltip(r)}
+                >
+                  {formatAmount(r.eosInventory)}
+                </td>
                 <td
                   className={`num-cell border-b border-slate-100 px-3 py-1.5 font-semibold ${r.otb < 0 ? "text-red-600" : "text-slate-900"}`}
                 >
-                  {formatAmount(r.otb)}
+                  {r.buyLocked ? (
+                    <span
+                      className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500"
+                      title="Incoming goods are filled in, so this season is already bought for — no OTB"
+                    >
+                      bought
+                    </span>
+                  ) : (
+                    formatAmount(r.otb)
+                  )}
                 </td>
                 <td className="border-b border-slate-100 px-3 py-1.5 text-slate-600">{r.currency}</td>
                 <td className="border-b border-slate-100 px-3 py-1.5">

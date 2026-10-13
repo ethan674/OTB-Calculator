@@ -1,10 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { buildMonthlyHorizon, getPlanningSeasons } from "@/lib/otb-engine";
 import type { FxRateMap } from "@/lib/otb-engine";
-import { computeStoreResult, sumHorizonBucket } from "@/lib/storePlan";
-import { computeOnHandAllocation, computeGroupShares } from "@/lib/brandInventory";
-import { applyOutletTransfers } from "@/lib/outletTransfer";
-import type { OtbSeasonRow, CurrentSeasonRow } from "@/lib/results";
+import { computePlan } from "@/lib/plan";
 import { buildSampleStores, SAMPLE_FX_RATES, SAMPLE_BRAND_INVENTORY } from "@/data/sampleStores";
 import { MARKET_CURRENCY } from "@/data/markets";
 import { emptyStore, type CalcStore } from "@/types";
@@ -15,6 +12,7 @@ import { AssumptionsTable } from "@/components/AssumptionsTable";
 import { FxRatesEditor } from "@/components/FxRatesEditor";
 import { SeasonSummaryCards } from "@/components/SeasonSummaryCards";
 import { BadgeLegend } from "@/components/BadgeLegend";
+import { SensitivityPanel } from "@/components/SensitivityPanel";
 import { CurrentSeasonTable } from "@/components/CurrentSeasonTable";
 import { ByStoreTable } from "@/components/ByStoreTable";
 import { AggregateTables } from "@/components/AggregateTables";
@@ -35,6 +33,7 @@ export default function App() {
   const [stores, setStores] = useState<CalcStore[]>([]);
   const [brandInventory, setBrandInventory] = useState<Record<string, number>>({});
   const [fxRates, setFxRates] = useState<FxRateMap>({});
+  const [brandOutlook, setBrandOutlook] = useState<Record<string, number>>({});
   const [tab, setTab] = useState<Tab>("stores");
   const [resultsSeasonTab, setResultsSeasonTab] = useState<"s1" | "s2">("s1");
   const [importError, setImportError] = useState<string | null>(null);
@@ -47,12 +46,14 @@ export default function App() {
     setStores(buildSampleStores());
     setBrandInventory(SAMPLE_BRAND_INVENTORY);
     setFxRates(SAMPLE_FX_RATES);
+    setBrandOutlook({});
   }
 
   function clearAll() {
     setStores([]);
     setBrandInventory({});
     setFxRates({});
+    setBrandOutlook({});
   }
 
   function handleForecastChange(storeId: string, monthKey: string, value: number) {
@@ -83,6 +84,19 @@ export default function App() {
     setBrandInventory((prev) => ({ ...prev, [key]: value }));
   }
 
+  function handleBrandOutlookChange(key: string, value: number | null) {
+    setBrandOutlook((prev) => {
+      const next = { ...prev };
+      if (value === null) delete next[key];
+      else next[key] = value;
+      return next;
+    });
+  }
+
+  function handleForwardChange(storeId: string, value: number | null) {
+    setStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, forwardMonthlySales: value } : s)));
+  }
+
   function handleFxChange(currency: string, rateToUsd: number | null) {
     setFxRates((prev) => {
       const next = { ...prev };
@@ -92,58 +106,10 @@ export default function App() {
     });
   }
 
-  const onHandAllocation = useMemo(() => computeOnHandAllocation(stores, brandInventory, horizon), [stores, brandInventory, horizon]);
-
-  const { season1Rows, season2Rows, currentSeasonRows } = useMemo(() => {
-    const rawSeason1: OtbSeasonRow[] = [];
-    const rawSeason2: OtbSeasonRow[] = [];
-    const currentSeasonRows: CurrentSeasonRow[] = [];
-
-    for (const store of stores) {
-      const currentOnHandInventory = onHandAllocation[store.id] ?? 0;
-      const plan = computeStoreResult(store, horizon, currentOnHandInventory);
-      const base = {
-        storeId: store.id,
-        storeName: store.storeName,
-        brand: store.brand,
-        channel: store.channel,
-        market: store.market,
-        currency: store.currency,
-        isOutlet: store.storeType === "Outlet",
-      };
-
-      rawSeason1.push({ ...base, ...plan.season1, otbUsd: null, transferAdjustment: 0 });
-      rawSeason2.push({ ...base, ...plan.season2, otbUsd: null, transferAdjustment: 0 });
-
-      currentSeasonRows.push({
-        ...base,
-        currentSeasonInventory: currentOnHandInventory,
-        currentIncomingGoods: store.currentRemainingReceipts,
-        currentRemainingTarget: sumHorizonBucket(store.monthlyForecast, horizon, "current"),
-        currentDiscountRate: store.currentDiscountPct,
-        projectedEosInventory: plan.season1.sosInventory,
-        floored: plan.season1.sosFloored,
-        overridden: plan.season1.sosOverridden,
-      });
-    }
-
-    // Outlet stores still have a sell-through target but can't place new
-    // buys, so any positive OTB they'd otherwise show is real, unmet
-    // demand. It gets covered by transfer from full-price stores in the
-    // same brand+market group — see lib/outletTransfer.ts.
-    const shares = computeGroupShares(stores, horizon);
-    const adjustedSeason1 = applyOutletTransfers(rawSeason1, shares);
-    const adjustedSeason2 = applyOutletTransfers(rawSeason2, shares);
-
-    function withUsd(rows: OtbSeasonRow[]): OtbSeasonRow[] {
-      return rows.map((r) => {
-        const rate = r.currency === "USD" ? 1 : fxRates[r.currency];
-        return { ...r, otbUsd: rate !== undefined ? r.otb * rate : null };
-      });
-    }
-
-    return { season1Rows: withUsd(adjustedSeason1), season2Rows: withUsd(adjustedSeason2), currentSeasonRows };
-  }, [stores, horizon, fxRates, onHandAllocation]);
+  const { onHandAllocation, season1Rows, season2Rows, currentSeasonRows } = useMemo(
+    () => computePlan(stores, brandInventory, horizon, fxRates, brandOutlook),
+    [stores, brandInventory, horizon, fxRates, brandOutlook]
+  );
 
   const activeRows = resultsSeasonTab === "s1" ? season1Rows : season2Rows;
   const activeLabel = resultsSeasonTab === "s1" ? planning1.label : planning2.label;
@@ -152,6 +118,7 @@ export default function App() {
     const wb = buildOtbWorkbook({
       stores,
       brandInventory,
+      brandOutlook,
       horizon,
       season1Rows,
       season2Rows,
@@ -180,6 +147,7 @@ export default function App() {
       const imported = parseImportedWorkbook(wb);
       setStores(imported.stores);
       setBrandInventory(imported.brandInventory);
+      setBrandOutlook(imported.brandOutlook);
       setFxRates(imported.fxRates);
       setImportError(null);
     } catch (err) {
@@ -274,10 +242,25 @@ export default function App() {
         )}
 
         {tab === "inventory" && (
-          <BrandInventoryEditor stores={stores} brandInventory={brandInventory} onChange={handleBrandInventoryChange} />
+          <BrandInventoryEditor
+            stores={stores}
+            brandInventory={brandInventory}
+            onChange={handleBrandInventoryChange}
+            brandOutlook={brandOutlook}
+            onOutlookChange={handleBrandOutlookChange}
+            lastSeasonLabel={planning2.label}
+          />
         )}
 
-        {tab === "forecast" && <ForecastGrid stores={stores} horizon={horizon} onCellChange={handleForecastChange} />}
+        {tab === "forecast" && (
+          <ForecastGrid
+            stores={stores}
+            horizon={horizon}
+            onCellChange={handleForecastChange}
+            lastSeasonLabel={planning2.label}
+            onForwardChange={handleForwardChange}
+          />
+        )}
 
         {tab === "assumptions" && (
           <AssumptionsTable stores={stores} onHandAllocation={onHandAllocation} onFieldChange={handleFieldChange} />
@@ -321,6 +304,15 @@ export default function App() {
             {stores.length > 0 && (
               <>
                 <SeasonSummaryCards rows={activeRows} seasonLabel={activeLabel} fxRates={fxRates} />
+                <SensitivityPanel
+                  stores={stores}
+                  brandInventory={brandInventory}
+                  brandOutlook={brandOutlook}
+                  horizon={horizon}
+                  fxRates={fxRates}
+                  season={resultsSeasonTab}
+                  seasonLabel={activeLabel}
+                />
                 <BadgeLegend />
                 <CurrentSeasonTable rows={currentSeasonRows} currentLabel={current.label} />
                 <div>

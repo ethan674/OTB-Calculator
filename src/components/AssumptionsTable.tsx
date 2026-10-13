@@ -17,17 +17,23 @@ interface ColumnDef {
   optional?: boolean;
   /** Locked to 0 and disabled for Outlet stores — they don't receive new-season product. */
   lockedForOutlet?: boolean;
+  /**
+   * Sell-through target only applies while the season's buy is open. Once
+   * that season's incoming goods are filled in (> 0) the buy is locked and
+   * sell-through is derived, so the field is disabled.
+   */
+  lockedWhenBought?: "s1OnOrder" | "s2OnOrder";
 }
 
 const COLUMNS: ColumnDef[] = [
   { key: "currentRemainingReceipts", label: "Incoming Goods (Current)", kind: "amount" },
   { key: "currentDiscountPct", label: "Current Average Discount", kind: "percent", validate: validateDiscountPct },
   { key: "s1OnOrder", label: "Incoming Goods (Next Season)", kind: "amount", lockedForOutlet: true },
-  { key: "s1SellThroughPct", label: "Forecast Sell-Through % (Next Season)", kind: "percent", validate: validateSellThroughPct },
+  { key: "s1SellThroughPct", label: "Target Sell-Through % (Next Season)", kind: "percent", validate: validateSellThroughPct, lockedWhenBought: "s1OnOrder" },
   { key: "s1DiscountPct", label: "Forecast Discount % (Next Season)", kind: "percent", validate: validateDiscountPct },
   { key: "s1ManualSosOverride", label: "S1 Manual SOS Override", kind: "amount", optional: true },
   { key: "s2OnOrder", label: "Incoming Goods (Following Season)", kind: "amount", lockedForOutlet: true },
-  { key: "s2SellThroughPct", label: "Forecast Sell-Through % (Following Season)", kind: "percent", validate: validateSellThroughPct },
+  { key: "s2SellThroughPct", label: "Target Sell-Through % (Following Season)", kind: "percent", validate: validateSellThroughPct, lockedWhenBought: "s2OnOrder" },
   { key: "s2DiscountPct", label: "Forecast Discount % (Following Season)", kind: "percent", validate: validateDiscountPct },
   { key: "s2ManualSosOverride", label: "S2 Manual SOS Override", kind: "amount", optional: true },
 ];
@@ -41,8 +47,10 @@ function Cell({
   col: ColumnDef;
   onFieldChange: AssumptionsTableProps["onFieldChange"];
 }) {
-  const locked = col.lockedForOutlet && store.storeType === "Outlet";
-  const rawValue = locked ? 0 : (store[col.key] as number | null);
+  const outletLocked = col.lockedForOutlet && store.storeType === "Outlet";
+  const bought = col.lockedWhenBought ? (store[col.lockedWhenBought] as number) > 0 : false;
+  const locked = outletLocked || bought;
+  const rawValue = outletLocked ? 0 : (store[col.key] as number | null);
   const isPercent = col.kind === "percent";
   const displayValue = rawValue === null || rawValue === undefined ? "" : isPercent ? (rawValue * 100).toFixed(1) : String(rawValue);
   const [text, setText] = useState(displayValue);
@@ -71,11 +79,11 @@ function Cell({
         <input
           type="text"
           inputMode="decimal"
-          value={locked ? "0" : text}
+          value={bought ? "" : outletLocked ? "0" : text}
           disabled={locked}
           onChange={(e) => setText(e.target.value)}
           onBlur={() => commit(text)}
-          placeholder={locked ? "outlet" : col.optional ? "derived" : undefined}
+          placeholder={bought ? "bought" : outletLocked ? "outlet" : col.optional ? "derived" : undefined}
           className={`num-cell w-full min-w-[110px] rounded border px-2 py-1 text-sm outline-none disabled:bg-slate-50 disabled:text-slate-400 ${
             hasError
               ? "border-red-400 bg-red-50"
@@ -105,66 +113,73 @@ export function AssumptionsTable({ stores, onHandAllocation, onFieldChange }: As
   }
 
   return (
-    <div className="overflow-auto rounded-md border border-slate-200" style={{ maxHeight: "70vh" }}>
-      <table className="border-collapse text-sm">
-        <thead>
-          <tr>
-            <th
-              rowSpan={2}
-              className="sticky left-0 top-0 z-30 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left align-bottom text-xs font-semibold text-slate-600"
-            >
-              Store
-            </th>
-            <th className="sticky top-0 z-20 border-b border-slate-200 bg-slate-100 px-2 py-1 text-center text-xs font-semibold text-slate-500" colSpan={3}>
-              Current Season
-            </th>
-            <th className="sticky top-0 z-20 border-b border-slate-200 bg-blue-50 px-2 py-1 text-center text-xs font-semibold text-blue-700" colSpan={4}>
-              Planning Season 1
-            </th>
-            <th className="sticky top-0 z-20 border-b border-slate-200 bg-emerald-50 px-2 py-1 text-center text-xs font-semibold text-emerald-700" colSpan={4}>
-              Planning Season 2
-            </th>
-          </tr>
-          <tr>
-            <th className="sticky top-[29px] z-20 min-w-[150px] border-b border-slate-200 bg-white px-2 py-2 text-right text-xs font-semibold text-slate-600">
-              Current On-Hand Inv. (SRP Value)
-            </th>
-            {COLUMNS.map((c) => (
+    <div className="flex flex-col gap-2">
+      <div className="overflow-auto rounded-md border border-slate-200" style={{ maxHeight: "70vh" }}>
+        <table className="border-collapse text-sm">
+          <thead>
+            <tr>
               <th
-                key={c.key}
-                className="sticky top-[29px] z-20 min-w-[110px] border-b border-slate-200 bg-white px-2 py-2 text-right text-xs font-semibold text-slate-600"
+                rowSpan={2}
+                className="sticky left-0 top-0 z-30 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left align-bottom text-xs font-semibold text-slate-600"
               >
-                {c.label}
+                Store
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {stores.map((store, row) => (
-            <tr key={store.id} className={row % 2 === 1 ? "bg-slate-50/50" : ""}>
-              <td
-                className={`sticky left-0 z-10 min-w-[220px] border-b border-r border-slate-200 px-3 py-1.5 align-top ${row % 2 === 1 ? "bg-slate-50" : "bg-white"}`}
-              >
-                <div className="font-medium text-slate-800">
-                  {store.storeName || "(unnamed store)"}
-                  {store.storeType === "Outlet" && (
-                    <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Outlet</span>
-                  )}
-                </div>
-                <div className="text-xs text-slate-400">
-                  {store.market} · {store.currency}
-                </div>
-              </td>
-              <td className="num-cell border-b border-slate-200 bg-slate-50 px-2 py-2 text-slate-600" title="Derived from Brand Inventory tab">
-                {formatAmount(onHandAllocation[store.id] ?? 0)}
-              </td>
+              <th className="sticky top-0 z-20 border-b border-slate-200 bg-slate-100 px-2 py-1 text-center text-xs font-semibold text-slate-500" colSpan={4}>
+                Current Season
+              </th>
+              <th className="sticky top-0 z-20 border-b border-slate-200 bg-blue-50 px-2 py-1 text-center text-xs font-semibold text-blue-700" colSpan={4}>
+                Planning Season 1
+              </th>
+              <th className="sticky top-0 z-20 border-b border-slate-200 bg-emerald-50 px-2 py-1 text-center text-xs font-semibold text-emerald-700" colSpan={4}>
+                Planning Season 2
+              </th>
+            </tr>
+            <tr>
+              <th className="sticky top-[29px] z-20 min-w-[150px] border-b border-slate-200 bg-white px-2 py-2 text-right text-xs font-semibold text-slate-600">
+                Current On-Hand Inv. (SRP Value)
+              </th>
               {COLUMNS.map((c) => (
-                <Cell key={c.key} store={store} col={c} onFieldChange={onFieldChange} />
+                <th
+                  key={c.key}
+                  className="sticky top-[29px] z-20 min-w-[110px] border-b border-slate-200 bg-white px-2 py-2 text-right text-xs font-semibold text-slate-600"
+                >
+                  {c.label}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {stores.map((store, row) => (
+              <tr key={store.id} className={row % 2 === 1 ? "bg-slate-50/50" : ""}>
+                <td
+                  className={`sticky left-0 z-10 min-w-[220px] border-b border-r border-slate-200 px-3 py-1.5 align-top ${row % 2 === 1 ? "bg-slate-50" : "bg-white"}`}
+                >
+                  <div className="font-medium text-slate-800">
+                    {store.storeName || "(unnamed store)"}
+                    {store.storeType === "Outlet" && (
+                      <span className="ml-1.5 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Outlet</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {store.market} · {store.currency}
+                  </div>
+                </td>
+                <td className="num-cell border-b border-slate-200 bg-slate-50 px-2 py-2 text-slate-600" title="Derived from Brand Inventory tab">
+                  {formatAmount(onHandAllocation[store.id] ?? 0)}
+                </td>
+                {COLUMNS.map((c) => (
+                  <Cell key={c.key} store={store} col={c} onFieldChange={onFieldChange} />
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-400">
+        Target sell-through only applies to a season that hasn't been bought for yet (incoming goods blank or 0) — OTB is
+        then sized to reach it. Once incoming goods are filled in, the buy is locked: the target greys out and sell-through
+        and ending inventory are derived from the stock actually held.
+      </p>
     </div>
   );
 }

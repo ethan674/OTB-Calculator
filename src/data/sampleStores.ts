@@ -49,7 +49,7 @@ const SAMPLE_DEFS: SampleDef[] = [
     s1OnOrder: 4_000_000,
     s2SellThroughPct: 0.75,
     s2DiscountPct: 0.22,
-    s2OnOrder: 3_500_000,
+    s2OnOrder: 0,
   },
   {
     storeName: "On Running Online TW",
@@ -63,10 +63,10 @@ const SAMPLE_DEFS: SampleDef[] = [
     currentDiscountPct: 0.25,
     s1SellThroughPct: 0.82,
     s1DiscountPct: 0.25,
-    s1OnOrder: 2_800_000,
+    s1OnOrder: 0,
     s2SellThroughPct: 0.8,
     s2DiscountPct: 0.24,
-    s2OnOrder: 2_600_000,
+    s2OnOrder: 0,
   },
   {
     // Full-price peer for the Taipei Outlet below, in the same brand+market
@@ -84,10 +84,10 @@ const SAMPLE_DEFS: SampleDef[] = [
     currentDiscountPct: 0.15,
     s1SellThroughPct: 0.65,
     s1DiscountPct: 0.15,
-    s1OnOrder: 2_500_000,
+    s1OnOrder: 0,
     s2SellThroughPct: 0.66,
     s2DiscountPct: 0.16,
-    s2OnOrder: 2_400_000,
+    s2OnOrder: 0,
   },
   {
     // Outlet demo: carries stock to operate but doesn't receive new-season
@@ -125,7 +125,7 @@ const SAMPLE_DEFS: SampleDef[] = [
     s1OnOrder: 3_200_000_000,
     s2SellThroughPct: 0.68,
     s2DiscountPct: 0.2,
-    s2OnOrder: 3_000_000_000,
+    s2OnOrder: 0,
   },
   {
     storeName: "Hanoi Online (PXG)",
@@ -139,10 +139,10 @@ const SAMPLE_DEFS: SampleDef[] = [
     currentDiscountPct: 0.3,
     s1SellThroughPct: 0.7,
     s1DiscountPct: 0.28,
-    s1OnOrder: 1_800_000_000,
+    s1OnOrder: 0,
     s2SellThroughPct: 0.72,
     s2DiscountPct: 0.26,
-    s2OnOrder: 1_700_000_000,
+    s2OnOrder: 0,
   },
   {
     storeName: "Da Nang Store (On Running)",
@@ -159,7 +159,7 @@ const SAMPLE_DEFS: SampleDef[] = [
     s1OnOrder: 2_600_000_000,
     s2SellThroughPct: 0.6,
     s2DiscountPct: 0.19,
-    s2OnOrder: 2_500_000_000,
+    s2OnOrder: 0,
   },
   {
     storeName: "Orchard Road (K-Swiss)",
@@ -173,10 +173,10 @@ const SAMPLE_DEFS: SampleDef[] = [
     currentDiscountPct: 0.2,
     s1SellThroughPct: 0.8,
     s1DiscountPct: 0.2,
-    s1OnOrder: 200_000,
+    s1OnOrder: 0,
     s2SellThroughPct: 0.78,
     s2DiscountPct: 0.21,
-    s2OnOrder: 190_000,
+    s2OnOrder: 0,
   },
   {
     storeName: "On Running Singapore Online",
@@ -190,10 +190,10 @@ const SAMPLE_DEFS: SampleDef[] = [
     currentDiscountPct: 0.27,
     s1SellThroughPct: 0.85,
     s1DiscountPct: 0.26,
-    s1OnOrder: 150_000,
+    s1OnOrder: 0,
     s2SellThroughPct: 0.83,
     s2DiscountPct: 0.25,
-    s2OnOrder: 145_000,
+    s2OnOrder: 0,
   },
   {
     storeName: "Marina Bay Partner (PXG)",
@@ -207,15 +207,16 @@ const SAMPLE_DEFS: SampleDef[] = [
     currentDiscountPct: 0.16,
     s1SellThroughPct: 0.63,
     s1DiscountPct: 0.16,
-    s1OnOrder: 130_000,
+    s1OnOrder: 0,
     s2SellThroughPct: 0.65,
     s2DiscountPct: 0.18,
-    s2OnOrder: 125_000,
+    s2OnOrder: 0,
   },
   {
-    // Deliberately overbought: on-hand inventory and on-order are far
-    // larger than the demand implied by the forecast/sell-through, so
-    // planning season 1 OTB comes out negative on first run.
+    // Deliberately overbought: on-hand inventory and the (already bought)
+    // on-order are far larger than the sales target needs, so it shows no
+    // OTB, an overbought flag, and a big ending inventory that carries into
+    // planning season 2's SoS.
     storeName: "Kaohsiung Store (K-Swiss)",
     brand: "K-Swiss",
     channel: "Retail",
@@ -230,7 +231,7 @@ const SAMPLE_DEFS: SampleDef[] = [
     s1OnOrder: 6_000_000,
     s2SellThroughPct: 0.58,
     s2DiscountPct: 0.2,
-    s2OnOrder: 1_000_000,
+    s2OnOrder: 0,
   },
 ];
 
@@ -268,5 +269,6 @@ export function buildSampleStores(): CalcStore[] {
     s2DiscountPct: def.s2DiscountPct,
     s2OnOrder: def.s2OnOrder,
     s2ManualSosOverride: null,
+    forwardMonthlySales: null,
   }));
 }

@@ -11,7 +11,9 @@ function makeRow(overrides: Partial<OtbSeasonRow> & Pick<OtbSeasonRow, "storeId"
     grossSalesValue: 0,
     discountValue: 0,
     totalAvailable: 0,
+    eosInventory: 0,
     targetEosInventory: 0,
+    buyLocked: false,
     onOrder: 0,
     overbought: overrides.otb < 0,
     sellThroughPct: 0.7,
@@ -20,6 +22,7 @@ function makeRow(overrides: Partial<OtbSeasonRow> & Pick<OtbSeasonRow, "storeId"
     sosOverridden: false,
     otbUsd: null,
     transferAdjustment: 0,
+    balance: overrides.balance ?? overrides.otb,
     ...overrides,
   };
 }
@@ -217,5 +220,45 @@ describe("applyOutletTransfers", () => {
     expect(f.transferAdjustment).toBeCloseTo(55, 6); // 40 + 15
     expect(o1.otb).toBe(0);
     expect(o2.otb).toBe(0);
+  });
+
+  it("re-derives total available and EoS: a drained outlet keeps only its target, an overbought store keeps its excess on top", () => {
+    const rows = [
+      makeRow({ storeId: "F", brand: "Acme", market: "Taiwan", isOutlet: false, otb: -100, sosInventory: 900, onOrder: 100, grossSalesValue: 900, targetEosInventory: 50 }),
+      makeRow({ storeId: "O", brand: "Acme", market: "Taiwan", isOutlet: true, otb: -20, sosInventory: 500, grossSalesValue: 400, targetEosInventory: 80 }),
+    ];
+    const result = applyOutletTransfers(rows, { F: 0.7, O: 0.3 });
+    const f = result.find((r) => r.storeId === "F")!;
+    const o = result.find((r) => r.storeId === "O")!;
+
+    // Outlet's surplus (20) credits to F: SoS 900 + 20, OTB -100 + -20 = -120.
+    expect(f.otb).toBeCloseTo(-120, 6);
+    expect(f.totalAvailable).toBeCloseTo(920 + 100, 6);
+    expect(f.eosInventory).toBeCloseTo(50 + 120, 6);
+    expect(f.sellThroughPct).toBeCloseTo(900 / 1020, 6);
+    // Outlet gives up the surplus: SoS 500 - 20 = 480 = gross 400 + target 80, nothing beyond the target.
+    expect(o.otb).toBe(0);
+    expect(o.totalAvailable).toBeCloseTo(480, 6);
+    expect(o.eosInventory).toBeCloseTo(80, 6);
+    expect(o.sellThroughPct).toBeCloseTo(400 / 480, 6);
+  });
+
+  it("a bought-for full-price store reports no OTB but still absorbs the transfer in its stock position", () => {
+    const rows = [
+      // Bought for (locked), overbought by 100: balance -100, so it can fund an outlet's need.
+      makeRow({ storeId: "F", brand: "Acme", market: "Taiwan", isOutlet: false, otb: 0, balance: -100, sosInventory: 900, onOrder: 100, grossSalesValue: 900, buyLocked: true }),
+      makeRow({ storeId: "O", brand: "Acme", market: "Taiwan", isOutlet: true, otb: 30, sosInventory: 0, grossSalesValue: 30 }),
+    ];
+    const result = applyOutletTransfers(rows, { F: 0.9, O: 0.1 });
+    const f = result.find((r) => r.storeId === "F")!;
+    const o = result.find((r) => r.storeId === "O")!;
+
+    expect(f.otb).toBe(0); // still bought for
+    expect(f.balance).toBeCloseTo(-70, 6); // excess shrinks by the 30 it supplied
+    expect(f.sosInventory).toBeCloseTo(870, 6);
+    expect(f.eosInventory).toBeCloseTo(70, 6);
+    expect(f.overbought).toBe(true);
+    expect(o.otb).toBe(0);
+    expect(o.sosInventory).toBeCloseTo(30, 6);
   });
 });

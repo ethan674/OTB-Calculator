@@ -16,10 +16,21 @@ export interface OtbSeasonRow extends OtbResultStore {
   grossSalesValue: number;
   discountValue: number;
   totalAvailable: number;
+  /**
+   * Forecast ending inventory: what's left after sales from inventory plus
+   * incoming (on-order is a locked buy). Rolls into the next season's SoS.
+   */
+  eosInventory: number;
+  /** Ending inventory the open buy was sized to reach; 0 once incoming goods are filled in. */
   targetEosInventory: number;
+  /** Incoming goods filled in: the buy is confirmed, so no sell-through target applies. */
+  buyLocked: boolean;
   sosInventory: number;
   onOrder: number;
+  /** Open-to-buy; 0 for a season that's already bought for (incoming goods filled in). */
   otb: number;
+  /** Signed gap vs. what the season needs: positive = shortfall, negative = excess. Drives EoS and transfers. */
+  balance: number;
   overbought: boolean;
   sellThroughPct: number;
   discountPct: number;
@@ -115,13 +126,15 @@ export function computeSeasonSummary(rows: OtbSeasonRow[], fxRates: FxRateMap): 
     fxRates
   );
   const totalEos = aggregateByCurrency(
-    rows.map((r) => ({ value: r.targetEosInventory, currency: r.currency })),
+    rows.map((r) => ({ value: r.eosInventory, currency: r.currency })),
     fxRates
   );
 
-  const totalAvailable = rows.reduce((sum, r) => sum + r.totalAvailable, 0);
-  const weightedAvgSellThrough =
-    totalAvailable > 0 ? rows.reduce((sum, r) => sum + r.sellThroughPct * r.totalAvailable, 0) / totalAvailable : 0;
+  // Sell-through is an output: stock sold ÷ stock available to sell (what's held plus any open buy).
+  const availableOf = (r: OtbSeasonRow) => r.totalAvailable + (r.buyLocked ? 0 : Math.max(0, r.balance));
+  const soldBase = rows.reduce((sum, r) => sum + Math.min(r.grossSalesValue, availableOf(r)), 0);
+  const availableBase = rows.reduce((sum, r) => sum + availableOf(r), 0);
+  const weightedAvgSellThrough = availableBase > 0 ? soldBase / availableBase : 0;
   const totalGross = rows.reduce((sum, r) => sum + r.grossSalesValue, 0);
   const weightedAvgDiscount =
     totalGross > 0 ? rows.reduce((sum, r) => sum + r.discountPct * r.grossSalesValue, 0) / totalGross : 0;

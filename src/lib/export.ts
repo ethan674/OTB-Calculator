@@ -16,13 +16,16 @@ const DETAIL_HEADERS = [
   "Target",
   "Gross",
   "Discount Value",
-  "SoS Inv",
+  "SoS Inv (before transfer)",
+  "Transfer In/(Out)",
   "Incoming Goods",
-  "Sell-Through %",
-  "EoS Inv",
+  "Total Available (SoS + Transfer + Incoming)",
+  "Sell-Through % (derived)",
+  "EoS Inv (forecast)",
+  "Target EoS Inv",
+  "Buy Status",
   "Store OTB (native currency)",
   "Store OTB (USD equivalent)",
-  "Transfer Adjustment",
   "Overbought",
   "SOS Overridden",
   "SOS Floored",
@@ -39,13 +42,16 @@ function detailRowToArray(r: OtbSeasonRow): (string | number | boolean)[] {
     round2(r.netRevenueTarget),
     round2(r.grossSalesValue),
     round2(r.discountValue),
-    round2(r.sosInventory),
+    round2(r.sosInventory + r.transferAdjustment),
+    r.transferAdjustment !== 0 ? round2(-r.transferAdjustment) : "",
     round2(r.onOrder),
+    round2(r.totalAvailable),
     Number((r.sellThroughPct * 100).toFixed(1)),
+    round2(r.eosInventory),
     round2(r.targetEosInventory),
-    round2(r.otb),
-    r.otbUsd !== null ? round2(r.otbUsd) : "N/A (missing FX rate)",
-    r.transferAdjustment !== 0 ? round2(r.transferAdjustment) : "",
+    r.buyLocked ? "Bought" : "Open",
+    r.buyLocked ? "" : round2(r.otb),
+    r.buyLocked ? "" : r.otbUsd !== null ? round2(r.otbUsd) : "N/A (missing FX rate)",
     r.overbought ? "OVERBOUGHT" : "",
     r.sosOverridden ? "override" : "",
     r.sosFloored ? "floored" : "",
@@ -151,20 +157,23 @@ function buildStoresInputSheet(stores: CalcStore[]): XLSX.WorkSheet {
   return XLSX.utils.aoa_to_sheet(aoa);
 }
 
-function buildBrandInventoryInputSheet(brandInventory: Record<string, number>): XLSX.WorkSheet {
-  const aoa: (string | number)[][] = [["Brand", "Market", "Currency", "Current On-Hand Inventory (SRP)"]];
-  for (const [key, amount] of Object.entries(brandInventory)) {
+const OUTLOOK_HEADER = "Sales After Last Planning Season vs. Last (%)";
+const FORWARD_HEADER = "Avg Monthly Sales After Last Planning Season";
+
+function buildBrandInventoryInputSheet(brandInventory: Record<string, number>, brandOutlook: Record<string, number>): XLSX.WorkSheet {
+  const aoa: (string | number)[][] = [["Brand", "Market", "Currency", "Current On-Hand Inventory (SRP)", OUTLOOK_HEADER]];
+  for (const key of new Set([...Object.keys(brandInventory), ...Object.keys(brandOutlook)])) {
     const [brand, market] = key.split("::");
-    aoa.push([brand ?? "", market ?? "", MARKET_CURRENCY[market] ?? "", amount]);
+    aoa.push([brand ?? "", market ?? "", MARKET_CURRENCY[market] ?? "", brandInventory[key] ?? "", brandOutlook[key] ?? ""]);
   }
   return XLSX.utils.aoa_to_sheet(aoa);
 }
 
 function buildMonthlyForecastInputSheet(stores: CalcStore[], horizon: HorizonMonth[]): XLSX.WorkSheet {
   const monthKeys = horizon.map((m) => m.monthKey);
-  const aoa: (string | number)[][] = [["Store Name", ...monthKeys]];
+  const aoa: (string | number)[][] = [["Store Name", ...monthKeys, FORWARD_HEADER]];
   for (const s of stores) {
-    aoa.push([s.storeName, ...monthKeys.map((mk) => s.monthlyForecast[mk] ?? "")]);
+    aoa.push([s.storeName, ...monthKeys.map((mk) => s.monthlyForecast[mk] ?? ""), s.forwardMonthlySales ?? ""]);
   }
   return XLSX.utils.aoa_to_sheet(aoa);
 }
@@ -211,6 +220,7 @@ function buildFxRatesInputSheet(fxRates: FxRateMap): XLSX.WorkSheet {
 export function buildOtbWorkbook(params: {
   stores: CalcStore[];
   brandInventory: Record<string, number>;
+  brandOutlook: Record<string, number>;
   horizon: HorizonMonth[];
   season1Rows: OtbSeasonRow[];
   season2Rows: OtbSeasonRow[];
@@ -219,7 +229,7 @@ export function buildOtbWorkbook(params: {
   fxRates: FxRateMap;
   fxAsOf: Record<string, string>;
 }): XLSX.WorkBook {
-  const { stores, brandInventory, horizon, season1Rows, season2Rows, planning1Label, planning2Label, fxRates, fxAsOf } = params;
+  const { stores, brandInventory, brandOutlook, horizon, season1Rows, season2Rows, planning1Label, planning2Label, fxRates, fxAsOf } = params;
   const wb = XLSX.utils.book_new();
 
   XLSX.utils.book_append_sheet(
@@ -232,7 +242,7 @@ export function buildOtbWorkbook(params: {
 
   // Raw inputs — everything needed to re-populate the app via Import Excel.
   XLSX.utils.book_append_sheet(wb, buildStoresInputSheet(stores), "Stores");
-  XLSX.utils.book_append_sheet(wb, buildBrandInventoryInputSheet(brandInventory), "Brand Inventory");
+  XLSX.utils.book_append_sheet(wb, buildBrandInventoryInputSheet(brandInventory, brandOutlook), "Brand Inventory");
   XLSX.utils.book_append_sheet(wb, buildMonthlyForecastInputSheet(stores, horizon), "Monthly Forecast");
   XLSX.utils.book_append_sheet(wb, buildAssumptionsInputSheet(stores), "Store Assumptions");
   XLSX.utils.book_append_sheet(wb, buildFxRatesInputSheet(fxRates), "FX Rates");
@@ -272,6 +282,7 @@ export function downloadCsv(csv: string, filename: string) {
 export interface ImportedWorkbookData {
   stores: CalcStore[];
   brandInventory: Record<string, number>;
+  brandOutlook: Record<string, number>;
   fxRates: FxRateMap;
 }
 
@@ -319,49 +330,60 @@ export function parseImportedWorkbook(wb: XLSX.WorkBook): ImportedWorkbookData {
 
   const forecastSheet = sheetToAoa(wb.Sheets["Monthly Forecast"]);
   if (forecastSheet.length >= 1) {
-    const monthKeys = forecastSheet[0].slice(1).map(String);
+    const forecastHeaders = forecastSheet[0].map((h) => String(h).trim());
+    const forwardCol = forecastHeaders.indexOf(FORWARD_HEADER);
     for (const row of forecastSheet.slice(1)) {
       const store = byName.get(String(row[0] ?? ""));
       if (!store) continue;
-      monthKeys.forEach((monthKey, i) => {
-        const value = toNumberOrUndefined(row[i + 1]);
-        if (monthKey && value !== undefined) store.monthlyForecast[monthKey] = value;
+      // Only "YYYY-MM" headers are months; the forward-sales column is read separately.
+      forecastHeaders.forEach((header, i) => {
+        if (!/^\d{4}-\d{2}$/.test(header)) return;
+        const value = toNumberOrUndefined(row[i]);
+        if (value !== undefined) store.monthlyForecast[header] = value;
       });
+      if (forwardCol >= 0) store.forwardMonthlySales = toNumberOrUndefined(row[forwardCol]) ?? null;
     }
   }
 
+  // Read by header name, not position, so exports from other versions still
+  // import — unknown columns are ignored and missing ones keep their defaults.
   const assumptionsSheet = sheetToAoa(wb.Sheets["Store Assumptions"]);
+  const headers = (assumptionsSheet[0] ?? []).map((h) => String(h).trim());
+  const col = (name: string) => headers.indexOf(name);
   for (const row of assumptionsSheet.slice(1)) {
     const store = byName.get(String(row[0] ?? ""));
     if (!store) continue;
-    const currentReceipts = toNumberOrUndefined(row[1]);
-    if (currentReceipts !== undefined) store.currentRemainingReceipts = currentReceipts;
-    const currentDiscount = toNumberOrUndefined(row[2]);
-    if (currentDiscount !== undefined) store.currentDiscountPct = currentDiscount / 100;
-    const s1OnOrder = toNumberOrUndefined(row[3]);
-    if (s1OnOrder !== undefined) store.s1OnOrder = s1OnOrder;
-    const s1SellThrough = toNumberOrUndefined(row[4]);
-    if (s1SellThrough !== undefined) store.s1SellThroughPct = s1SellThrough / 100;
-    const s1Discount = toNumberOrUndefined(row[5]);
-    if (s1Discount !== undefined) store.s1DiscountPct = s1Discount / 100;
-    store.s1ManualSosOverride = toNumberOrUndefined(row[6]) ?? null;
-    const s2OnOrder = toNumberOrUndefined(row[7]);
-    if (s2OnOrder !== undefined) store.s2OnOrder = s2OnOrder;
-    const s2SellThrough = toNumberOrUndefined(row[8]);
-    if (s2SellThrough !== undefined) store.s2SellThroughPct = s2SellThrough / 100;
-    const s2Discount = toNumberOrUndefined(row[9]);
-    if (s2Discount !== undefined) store.s2DiscountPct = s2Discount / 100;
-    store.s2ManualSosOverride = toNumberOrUndefined(row[10]) ?? null;
+    const num = (name: string) => (col(name) >= 0 ? toNumberOrUndefined(row[col(name)]) : undefined);
+    const pct = (name: string) => {
+      const n = num(name);
+      return n === undefined ? undefined : n / 100;
+    };
+    store.currentRemainingReceipts = num("Incoming Goods (Current)") ?? store.currentRemainingReceipts;
+    store.currentDiscountPct = pct("Current Average Discount %") ?? store.currentDiscountPct;
+    store.s1OnOrder = num("S1 On-Order") ?? store.s1OnOrder;
+    store.s1SellThroughPct = pct("S1 Sell-Through %") ?? store.s1SellThroughPct;
+    store.s1DiscountPct = pct("S1 Discount %") ?? store.s1DiscountPct;
+    store.s1ManualSosOverride = num("S1 Manual SOS Override") ?? null;
+    store.s2OnOrder = num("S2 On-Order") ?? store.s2OnOrder;
+    store.s2SellThroughPct = pct("S2 Sell-Through %") ?? store.s2SellThroughPct;
+    store.s2DiscountPct = pct("S2 Discount %") ?? store.s2DiscountPct;
+    store.s2ManualSosOverride = num("S2 Manual SOS Override") ?? null;
   }
 
   const brandInventory: Record<string, number> = {};
+  const brandOutlook: Record<string, number> = {};
   const brandInvSheet = sheetToAoa(wb.Sheets["Brand Inventory"]);
+  const brandHeaders = (brandInvSheet[0] ?? []).map((h) => String(h).trim());
+  const onHandCol = brandHeaders.indexOf("Current On-Hand Inventory (SRP)");
+  const outlookCol = brandHeaders.indexOf(OUTLOOK_HEADER);
   for (const row of brandInvSheet.slice(1)) {
     const brand = row[0], market = row[1];
-    const amount = toNumberOrUndefined(row[3]);
-    if (brand && market && amount !== undefined) {
-      brandInventory[brandMarketKey(String(brand), String(market))] = amount;
-    }
+    if (!brand || !market) continue;
+    const key = brandMarketKey(String(brand), String(market));
+    const amount = onHandCol >= 0 ? toNumberOrUndefined(row[onHandCol]) : undefined;
+    if (amount !== undefined) brandInventory[key] = amount;
+    const outlook = outlookCol >= 0 ? toNumberOrUndefined(row[outlookCol]) : undefined;
+    if (outlook !== undefined) brandOutlook[key] = outlook;
   }
 
   const fxRates: FxRateMap = {};
@@ -372,7 +394,7 @@ export function parseImportedWorkbook(wb: XLSX.WorkBook): ImportedWorkbookData {
     if (currency && rate !== undefined) fxRates[String(currency)] = rate;
   }
 
-  return { stores, brandInventory, fxRates };
+  return { stores, brandInventory, brandOutlook, fxRates };
 }
 
 export async function readWorkbookFile(file: File): Promise<XLSX.WorkBook> {

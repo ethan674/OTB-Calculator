@@ -6,6 +6,9 @@ interface ForecastGridProps {
   stores: CalcStore[];
   horizon: HorizonMonth[];
   onCellChange: (storeId: string, monthKey: string, value: number) => void;
+  /** Label of the last planning season, e.g. "FW27" — the trailing column covers what comes after it. */
+  lastSeasonLabel: string;
+  onForwardChange: (storeId: string, value: number | null) => void;
 }
 
 function parseNumberInput(raw: string): number | null {
@@ -29,7 +32,9 @@ const BUCKET_CLASS: Record<HorizonMonth["bucket"], string> = {
 
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProps) {
+export function ForecastGrid({ stores, horizon, onCellChange, lastSeasonLabel, onForwardChange }: ForecastGridProps) {
+  // The month columns, plus one trailing column: average monthly sales after the last planning season.
+  const forwardCol = horizon.length;
   const cellRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
   function key(row: number, col: number) {
@@ -37,7 +42,7 @@ export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProp
   }
 
   function focusCell(row: number, col: number) {
-    if (row < 0 || row >= stores.length || col < 0 || col >= horizon.length) return;
+    if (row < 0 || row >= stores.length || col < 0 || col > forwardCol) return;
     const el = cellRefs.current.get(key(row, col));
     el?.focus();
     el?.select();
@@ -85,10 +90,14 @@ export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProp
       cells.forEach((cellText, ci) => {
         const targetRow = row + ri;
         const targetCol = col + ci;
-        if (targetRow >= stores.length || targetCol >= horizon.length) return;
+        if (targetRow >= stores.length || targetCol > forwardCol) return;
         const store = stores[targetRow];
         const value = parseNumberInput(cellText);
-        if (value !== null) {
+        if (value !== null && targetCol === forwardCol) {
+          const el = cellRefs.current.get(key(targetRow, targetCol));
+          if (el) el.value = String(value);
+          onForwardChange(store.id, value);
+        } else if (value !== null) {
           // Inputs are uncontrolled for smooth typing, so pasted cells that
           // aren't the currently-focused one need their DOM value set
           // directly — React state alone won't re-render them.
@@ -134,6 +143,9 @@ export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProp
                 {g.label}
               </th>
             ))}
+            <th className="sticky top-0 z-20 border-b border-l border-slate-200 bg-amber-50 px-2 py-1 text-center text-xs font-semibold text-amber-700">
+              After {lastSeasonLabel}
+            </th>
           </tr>
           <tr>
             <th className="sticky left-0 top-[29px] z-30 min-w-[220px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-semibold text-slate-600">
@@ -147,6 +159,12 @@ export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProp
                 {MONTH_NAMES[m.month - 1]} {String(m.year).slice(2)}
               </th>
             ))}
+            <th
+              className="sticky top-[29px] z-20 min-w-[120px] border-b border-l border-slate-200 bg-white px-2 py-2 text-right text-xs font-semibold text-slate-600"
+              title={`Average monthly net sales after ${lastSeasonLabel}. Sizes ${lastSeasonLabel}'s target ending inventory. Blank = ${lastSeasonLabel}'s own average, adjusted by the brand's outlook on the Brand Inventory tab.`}
+            >
+              Avg / month
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -185,6 +203,30 @@ export function ForecastGrid({ stores, horizon, onCellChange }: ForecastGridProp
                   </td>
                 );
               })}
+              <td className="border-b border-l border-slate-200 bg-amber-50/40 p-0">
+                <input
+                  ref={(el) => {
+                    if (el) cellRefs.current.set(key(row, forwardCol), el);
+                    else cellRefs.current.delete(key(row, forwardCol));
+                  }}
+                  type="text"
+                  inputMode="decimal"
+                  defaultValue={store.forwardMonthlySales ?? ""}
+                  placeholder="default"
+                  onKeyDown={(e) => handleKeyDown(e, row, forwardCol)}
+                  onPaste={(e) => handlePaste(e, row, forwardCol)}
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim();
+                    if (raw === "") {
+                      if (store.forwardMonthlySales !== null) onForwardChange(store.id, null);
+                      return;
+                    }
+                    const parsed = parseNumberInput(raw);
+                    if (parsed !== null && parsed !== store.forwardMonthlySales) onForwardChange(store.id, parsed);
+                  }}
+                  className="num-cell w-full min-w-[120px] bg-transparent px-2 py-1.5 text-sm text-slate-800 outline-none placeholder:text-slate-300 focus:bg-white focus:ring-2 focus:ring-inset focus:ring-slate-400"
+                />
+              </td>
             </tr>
           ))}
         </tbody>

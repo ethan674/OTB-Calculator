@@ -146,62 +146,148 @@ export function buildMonthlyHorizon(today: Date): HorizonMonth[] {
 // Core OTB formula
 // ---------------------------------------------------------------------------
 
+/** A planning season is six months, so 6 × average monthly sales = a season's sales. */
+export const SEASON_MONTHS = 6;
+
 export interface OtbSeasonInputs {
   /** Net revenue forecast for the season (sum of the season's monthly forecasts) */
   netRevenueTarget: number;
   /** Blended discount rate, as a decimal 0-1 */
   discountPct: number;
-  /** Sell-through rate, as a decimal 0-1 */
+  /**
+   * Target sell-through, as a decimal 0-1. Only used while the buy is still
+   * open (no incoming goods filled in); once the buy is locked it's ignored
+   * and sell-through is derived from the stock actually held.
+   */
   sellThroughPct: number;
+  /**
+   * Gross sales the ending inventory has to cover — the next season's demand,
+   * at retail. Only sizes the target EoS of an open buy; defaults to this
+   * season's own gross sales (6 months of cover scaled by sell-through).
+   */
+  forwardGrossSales?: number;
   /** Start-of-season inventory at SRP (derived via roll-forward, or manual override) */
   sosInventory: number;
-  /** On-order for the season at SRP */
+  /**
+   * Incoming goods for the season at SRP. A filled-in (> 0) amount is a
+   * confirmed, locked buy; blank/0 means the season hasn't been bought for yet.
+   */
   onOrder: number;
 }
 
-export interface OtbSeasonResult extends OtbSeasonInputs {
-  grossSalesValue: number;
-  discountValue: number;
+/** A season is "bought for" once incoming goods are filled in; blank/0 means OTB is still being calculated. */
+export function isBuyLocked(onOrder: number): boolean {
+  return onOrder > 0;
+}
+
+/** What a store holds against its sales target. All derived — nothing here is an input. */
+export interface SeasonPosition {
+  /** Inventory + incoming: SoS + on-order (stock already held or committed). */
   totalAvailable: number;
-  targetEosInventory: number;
+  /**
+   * Signed gap between what the season needs (gross sales + target EoS) and
+   * what's held: positive = shortfall, negative = excess. Drives EoS and
+   * outlet transfers for every season, bought or not.
+   */
+  balance: number;
+  /**
+   * Open-to-buy amount. Only an open season (no incoming goods) has one: once
+   * incoming goods are filled in the season is already bought for, so OTB is 0.
+   */
   otb: number;
+  /** Forecast ending inventory: the target (open buys only) plus any overbought excess. */
+  eosInventory: number;
+  /** Share of available stock sold: min(gross sales, available) ÷ available. */
+  sellThroughPct: number;
+  /** Holding more than the sales target needs (locked incoming goods can't be un-bought). */
   overbought: boolean;
 }
 
+export interface OtbSeasonResult extends OtbSeasonInputs, SeasonPosition {
+  grossSalesValue: number;
+  discountValue: number;
+  /** Ending inventory the open buy is sized to reach; 0 once the buy is locked. */
+  targetEosInventory: number;
+  buyLocked: boolean;
+}
+
 /**
- * OTB (SRP) = Net Sales Target + Discount Value + Target EOS Inventory
- *             - Start-of-Season Inventory - On-Order
+ * Target ending inventory for a season that hasn't been bought for yet. The
+ * brand's sell-through expectation fixes the months of cover — (1 − ST) ÷ ST
+ * seasons' worth, e.g. 65% ≈ 3.2 months of a 6-month season — and the gross
+ * sales the stock must cover set how big that is. Locked buys have no target.
+ */
+export function targetEosFor(forwardGrossSales: number, sellThroughPct: number, buyLocked: boolean): number {
+  if (buyLocked || !(sellThroughPct > 0)) return 0;
+  return (forwardGrossSales * (1 - sellThroughPct)) / sellThroughPct;
+}
+
+/**
+ * Everything that follows from a store's signed balance. Split out from
+ * deriveSeasonPosition so outlet transfers, which shift a balance directly,
+ * re-derive the rest the same way.
+ */
+export function positionFromBalance(
+  grossSalesValue: number,
+  totalAvailable: number,
+  targetEosInventory: number,
+  buyLocked: boolean,
+  balance: number
+): SeasonPosition {
+  const available = totalAvailable + (buyLocked ? 0 : Math.max(0, balance));
+  return {
+    totalAvailable,
+    balance,
+    otb: buyLocked ? 0 : balance,
+    eosInventory: targetEosInventory + Math.max(0, -balance),
+    sellThroughPct: grossSalesValue > 0 && available > 0 ? Math.min(grossSalesValue, available) / available : 0,
+    // Negative balance is displayed as-is (never clamped) and flagged.
+    overbought: balance < 0,
+  };
+}
+
+export function deriveSeasonPosition(
+  grossSalesValue: number,
+  sosInventory: number,
+  onOrder: number,
+  targetEosInventory: number,
+  buyLocked: boolean
+): SeasonPosition {
+  const totalAvailable = sosInventory + onOrder;
+  const balance = grossSalesValue + targetEosInventory - totalAvailable;
+  return positionFromBalance(grossSalesValue, totalAvailable, targetEosInventory, buyLocked, balance);
+}
+
+/**
+ * Open season (incoming goods blank/0) — OTB is solved to reach the target:
+ *   Gross sales      = Net / (1 - discount%)
+ *   Target EoS       = Forward gross × (1 − sell-through%) ÷ sell-through%
+ *                      (forward gross = next season's sales; own gross if none)
+ *   OTB (SRP)        = Gross + Target EoS − SOS − On-Order
  *
- * Implemented via the derivation in the spec so every intermediate term is
- * internally consistent:
- *   Gross = Net / (1 - discount%)
- *   Discount value = Gross - Net
- *   Total available = Gross / sellThrough%
- *   Target EOS = Total available * (1 - sellThrough%)
- *   OTB = Total available - SOS - OnOrder
+ * Locked season (incoming goods filled in) — already bought for, so there is
+ * no OTB and no target; sell-through and EoS are derived from the stock held.
+ * An overbought store (balance < 0) keeps its excess as ending inventory
+ * either way, since a locked buy can't be un-bought.
  */
 export function computeOtbForSeason(inputs: OtbSeasonInputs): OtbSeasonResult {
-  const { netRevenueTarget, discountPct, sellThroughPct, sosInventory, onOrder } = inputs;
+  const { netRevenueTarget, discountPct, sellThroughPct, forwardGrossSales, sosInventory, onOrder } = inputs;
 
   const grossSalesValue = netRevenueTarget / (1 - discountPct);
   const discountValue = grossSalesValue - netRevenueTarget;
-  const totalAvailable = grossSalesValue / sellThroughPct;
-  const targetEosInventory = totalAvailable * (1 - sellThroughPct);
-  const otb = totalAvailable - sosInventory - onOrder;
+  const buyLocked = isBuyLocked(onOrder);
+  const targetEosInventory = targetEosFor(forwardGrossSales ?? grossSalesValue, sellThroughPct, buyLocked);
 
   return {
     netRevenueTarget,
     discountPct,
-    sellThroughPct,
     sosInventory,
     onOrder,
     grossSalesValue,
     discountValue,
-    totalAvailable,
     targetEosInventory,
-    otb,
-    // Negative OTB is displayed as-is (never clamped) and flagged.
-    overbought: otb < 0,
+    buyLocked,
+    ...deriveSeasonPosition(grossSalesValue, sosInventory, onOrder, targetEosInventory, buyLocked),
   };
 }
 
@@ -265,39 +351,40 @@ export interface RollForwardSeason2Result {
 }
 
 /**
- * SOS (planning season 2) = Target EOS Inventory (planning season 1)
- *   + On-Order already committed for planning season 2.
+ * SOS (planning season 2) = forecast EoS Inventory of planning season 1 —
+ * the target ending inventory (if season 1 was still an open buy) plus any
+ * overbought excess (on-order is a locked buy). Season 2's own on-order is
+ * NOT part of SOS; it's counted once, in Total Available (SOS + On-Order).
  */
 export function computeSos2(
-  targetEosInventorySeason1: number,
-  onOrderSeason2: number,
+  eosSeason1: number,
   manualSosOverride?: number | null
 ): RollForwardSeason2Result {
-  const rawSos = targetEosInventorySeason1 + onOrderSeason2;
+  const rawSos = eosSeason1;
   const overridden = manualSosOverride !== undefined && manualSosOverride !== null;
   const sos = overridden ? (manualSosOverride as number) : rawSos;
   return { sos, rawSos, overridden };
 }
 
 // ---------------------------------------------------------------------------
-// Full per-store, two-season plan
+// Per-store season plans
 // ---------------------------------------------------------------------------
 
 export interface StorePlanSeasonInputs {
   netRevenueTarget: number;
   discountPct: number;
   sellThroughPct: number;
+  forwardGrossSales?: number;
   onOrder: number;
   manualSosOverride?: number | null;
 }
 
-export interface StorePlanInputs {
+export interface Season1PlanInputs {
   currentOnHandInventory: number;
   currentRemainingReceipts: number;
   currentSeasonDiscountPct: number;
   remainingCurrentSeasonNetForecast: number;
   season1: StorePlanSeasonInputs;
-  season2: StorePlanSeasonInputs;
 }
 
 export interface StorePlanSeasonOutput extends OtbSeasonResult {
@@ -305,18 +392,11 @@ export interface StorePlanSeasonOutput extends OtbSeasonResult {
   sosOverridden: boolean;
 }
 
-export interface StorePlanResult {
-  season1: StorePlanSeasonOutput;
-  season2: StorePlanSeasonOutput;
-}
-
 /**
- * Chains the roll-forward and OTB formula across both planning seasons for
- * a single store. This is the single entry point results pages and the
- * submission snapshot should use, so the chain is always computed
- * consistently.
+ * Planning season 1 for a single store: derives SOS from the current-season
+ * roll-forward, then runs the OTB formula.
  */
-export function computeStorePlan(inputs: StorePlanInputs): StorePlanResult {
+export function computeStoreSeason1(inputs: Season1PlanInputs): StorePlanSeasonOutput {
   const sos1 = computeSos1({
     currentOnHandInventory: inputs.currentOnHandInventory,
     currentRemainingReceipts: inputs.currentRemainingReceipts,
@@ -329,28 +409,33 @@ export function computeStorePlan(inputs: StorePlanInputs): StorePlanResult {
     netRevenueTarget: inputs.season1.netRevenueTarget,
     discountPct: inputs.season1.discountPct,
     sellThroughPct: inputs.season1.sellThroughPct,
+    forwardGrossSales: inputs.season1.forwardGrossSales,
     sosInventory: sos1.sos,
     onOrder: inputs.season1.onOrder,
   });
 
-  const sos2 = computeSos2(
-    otb1.targetEosInventory,
-    inputs.season2.onOrder,
-    inputs.season2.manualSosOverride
-  );
+  return { ...otb1, sosFloored: sos1.floored, sosOverridden: sos1.overridden };
+}
+
+/**
+ * Planning season 2 for a single store. Its SOS is season 1's forecast EoS —
+ * which includes any overbought excess — so it takes that as an input
+ * rather than recomputing it: season 1's final OTB (and so its EoS) only
+ * settles after outlet transfers, which happen across stores.
+ */
+export function computeStoreSeason2(season2: StorePlanSeasonInputs, eosSeason1: number): StorePlanSeasonOutput {
+  const sos2 = computeSos2(eosSeason1, season2.manualSosOverride);
 
   const otb2 = computeOtbForSeason({
-    netRevenueTarget: inputs.season2.netRevenueTarget,
-    discountPct: inputs.season2.discountPct,
-    sellThroughPct: inputs.season2.sellThroughPct,
+    netRevenueTarget: season2.netRevenueTarget,
+    discountPct: season2.discountPct,
+    sellThroughPct: season2.sellThroughPct,
+    forwardGrossSales: season2.forwardGrossSales,
     sosInventory: sos2.sos,
-    onOrder: inputs.season2.onOrder,
+    onOrder: season2.onOrder,
   });
 
-  return {
-    season1: { ...otb1, sosFloored: sos1.floored, sosOverridden: sos1.overridden },
-    season2: { ...otb2, sosFloored: false, sosOverridden: sos2.overridden },
-  };
+  return { ...otb2, sosFloored: false, sosOverridden: sos2.overridden };
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +502,7 @@ export interface FieldValidation {
   warnings: string[];
 }
 
-/** Sell-through rate: valid range 1-100%. Warn (non-blocking) below 40% or above 95%. */
+/** Sell-through target: valid range 1-100%. Warn (non-blocking) below 40% or above 95%. */
 export function validateSellThroughPct(pctAsPercent: number): FieldValidation {
   const errors: string[] = [];
   const warnings: string[] = [];

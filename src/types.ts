@@ -40,6 +40,14 @@ export interface CalcStore {
   /** Locked to 0 for Outlet stores — they don't receive new-season product. */
   s2OnOrder: number;
   s2ManualSosOverride: number | null;
+
+  /**
+   * Per-store override: average monthly NET sales after the last planning
+   * season, used to size that season's target ending inventory. Blank (null)
+   * falls back to the season's own monthly average, adjusted by the brand's
+   * outlook % — see lib/storePlan.ts.
+   */
+  forwardMonthlySales: number | null;
 }
 
 export function makeId(): string {
@@ -69,5 +77,6 @@ export function emptyStore(): CalcStore {
     s2DiscountPct: 0.2,
     s2OnOrder: 0,
     s2ManualSosOverride: null,
+    forwardMonthlySales: null,
   };
 }
