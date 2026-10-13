@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually [http://localhost:5173](http://localhost:5173)), then click **Load Sample Data** to see it populated with 10 example stores, or **+ Add Store** to start from scratch.
+Open the URL Vite prints (usually [http://localhost:5173](http://localhost:5173)), then click **Load Sample Data** to see it populated with 11 example stores, or **+ Add Store** to start from scratch.
 
 Run the calculation engine's unit tests:
 
