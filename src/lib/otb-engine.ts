@@ -275,6 +275,9 @@ export function deriveSeasonPosition(
  *                      (forward gross = next season's sales; own gross if none)
  *   OTB (SRP)        = Gross + Target EoS − SOS − On-Order
  *
+ * A store with no sales target in a season carries no target (and so no
+ * OTB) for it, however much it will sell the season after.
+ *
  * Locked season (incoming goods filled in) — already bought for, so there is
  * no OTB and no target; sell-through and EoS are derived from the stock held.
  * An overbought store (balance < 0) keeps its excess as ending inventory
@@ -286,7 +289,10 @@ export function computeOtbForSeason(inputs: OtbSeasonInputs): OtbSeasonResult {
   const grossSalesValue = netRevenueTarget / (1 - discountPct);
   const discountValue = grossSalesValue - netRevenueTarget;
   const buyLocked = isBuyLocked(onOrder);
-  const targetEosInventory = targetEosFor(forwardGrossSales ?? grossSalesValue, sellThroughPct, buyLocked);
+  // A store with no sales target this season has nothing to buy for it — e.g. one
+  // that opens next season. Its launch stock is bought in the season it opens,
+  // not by pre-loading a target onto the season before.
+  const targetEosInventory = grossSalesValue > 0 ? targetEosFor(forwardGrossSales ?? grossSalesValue, sellThroughPct, buyLocked) : 0;
 
   return {
     netRevenueTarget,

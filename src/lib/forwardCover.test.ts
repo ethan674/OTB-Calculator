@@ -47,6 +47,16 @@ describe("target ending inventory sizes against the demand it has to cover", () 
     expect(computeSeason2Result(s, horizon, 0, 50).targetEosInventory).toBe(0);
   });
 
+  it("a store with no sales this season carries no target for it, even if it sells the season after", () => {
+    // Opens next season: nothing to buy now — its launch stock belongs to the season it opens.
+    const opensLater = store(0, 100_000);
+    const s1 = computeSeason1Result(opensLater, horizon, 0);
+    expect(s1.targetEosInventory).toBe(0);
+    expect(s1.otb).toBe(0);
+    // ...but it does carry its target in the season it opens.
+    expect(computeSeason2Result(opensLater, horizon, 0).targetEosInventory).toBeCloseTo(cover(750_000), 4);
+  });
+
   it("flows through the whole plan, keyed by brand+market", () => {
     const stores = [store(100_000, 100_000), { ...store(100_000, 100_000), brand: "Other" }];
     const plan = computePlan(stores, {}, horizon, {}, { [brandMarketKey("B", "Taiwan")]: -20 });

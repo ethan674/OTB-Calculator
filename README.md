@@ -66,6 +66,7 @@ There are two modes, decided per store per season by its **incoming goods**:
 
 **Forward gross sales** — ending inventory has to cover the *next* season's demand, not a % of this one's:
 - **Planning season 1:** season 2's own forecast months (grossed up at season 2's discount), so no new input.
+- **A store with no sales target in a season** (for example one that opens next season) carries no target and no OTB for it — its launch stock is bought in the season it opens, not pre-loaded onto the season before.
 - **Planning season 2 (the last):** nothing is forecast beyond it, so the stock is sized on the store's **average monthly net sales after it** if you've entered one (the extra *Avg / month* column on the Monthly Forecast tab); otherwise on that season's own sales moved by the brand's **Sales after {season} vs. {season} (%)** on the Brand Inventory tab (blank = 0%, i.e. next season looks like this one). With neither set, it's exactly the old "sell-through of its own season" sizing.
 
 **Locked buy — incoming goods filled in (> 0).** The season has already been bought for, so there is **no OTB amount** (it shows "bought", counts as 0 in every total, and exports blank) and no sell-through target. Sell-through and ending inventory are simply derived from the stock actually held. The stock position still matters, though: each store carries a signed *balance* (`Gross + Target EoS − SOS − Incoming`; positive = shortfall, negative = excess) that drives EoS, the Overbought flag and outlet transfers whether or not the season is bought.
