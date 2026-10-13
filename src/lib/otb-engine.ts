@@ -208,6 +208,8 @@ export interface OtbSeasonResult extends OtbSeasonInputs, SeasonPosition {
   discountValue: number;
   /** Ending inventory the open buy is sized to reach; 0 once the buy is locked. */
   targetEosInventory: number;
+  /** Gross sales the ending inventory has to cover (next season's demand); own gross sales if none was given. */
+  forwardGrossSales: number;
   buyLocked: boolean;
 }
 
@@ -220,6 +222,14 @@ export interface OtbSeasonResult extends OtbSeasonInputs, SeasonPosition {
 export function targetEosFor(forwardGrossSales: number, sellThroughPct: number, buyLocked: boolean): number {
   if (buyLocked || !(sellThroughPct > 0)) return 0;
   return (forwardGrossSales * (1 - sellThroughPct)) / sellThroughPct;
+}
+
+/**
+ * How many months of next-season sales the ending inventory covers:
+ * EoS ÷ (forward gross sales ÷ 6). Null when there's no forward demand to measure against.
+ */
+export function monthsOfCover(eosInventory: number, forwardGrossSales: number): number | null {
+  return forwardGrossSales > 0 ? eosInventory / (forwardGrossSales / SEASON_MONTHS) : null;
 }
 
 /**
@@ -286,6 +296,7 @@ export function computeOtbForSeason(inputs: OtbSeasonInputs): OtbSeasonResult {
     grossSalesValue,
     discountValue,
     targetEosInventory,
+    forwardGrossSales: forwardGrossSales ?? grossSalesValue,
     buyLocked,
     ...deriveSeasonPosition(grossSalesValue, sosInventory, onOrder, targetEosInventory, buyLocked),
   };

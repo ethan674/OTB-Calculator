@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildMonthlyHorizon } from "./otb-engine";
+import { buildMonthlyHorizon, monthsOfCover } from "./otb-engine";
+import { monthsOfCoverFor } from "./results";
 import { computeSeason1Result, computeSeason2Result } from "./storePlan";
 import { computePlan } from "./plan";
 import { brandMarketKey } from "./brandInventory";
@@ -52,5 +53,27 @@ describe("target ending inventory sizes against the demand it has to cover", () 
     const [b, other] = plan.season2Rows;
     expect(b.targetEosInventory).toBeCloseTo(cover(750_000 * 0.8), 4);
     expect(other.targetEosInventory).toBeCloseTo(cover(750_000), 4); // a different brand is untouched
+  });
+});
+
+describe("months of cover", () => {
+  it("is EoS over next season's average monthly gross sales", () => {
+    expect(monthsOfCover(3_000_000, 6_000_000)).toBeCloseTo(3, 6); // 1,000,000 a month
+    expect(monthsOfCover(500_000, 0)).toBeNull(); // no forward demand to measure against
+  });
+
+  it("an open store with no excess lands on the sell-through target's cover (65% ≈ 3.2 months), whatever the outlook", () => {
+    for (const outlook of [0, -20, 15]) {
+      const plan = computePlan([store(100_000, 100_000)], {}, horizon, {}, { [brandMarketKey("B", "Taiwan")]: outlook });
+      expect(monthsOfCoverFor(plan.season2Rows[0])).toBeCloseTo((6 * 0.35) / 0.65, 4);
+    }
+  });
+
+  it("an overbought open store shows more cover than the target, and a bought season shows none", () => {
+    const pool = { [brandMarketKey("B", "Taiwan")]: 50_000_000 };
+    const overbought = computePlan([store(100_000, 100_000)], pool, horizon, {});
+    expect(monthsOfCoverFor(overbought.season2Rows[0])!).toBeGreaterThan((6 * 0.35) / 0.65);
+    const bought = computePlan([store(100_000, 100_000, { s2OnOrder: 1 })], pool, horizon, {});
+    expect(monthsOfCoverFor(bought.season2Rows[0])).toBeNull();
   });
 });

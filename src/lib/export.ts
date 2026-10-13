@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import type { OtbSeasonRow } from "@/lib/results";
-import { groupAndAggregate, computeSeasonSummary } from "@/lib/results";
+import { groupAndAggregate, computeSeasonSummary, monthsOfCoverFor } from "@/lib/results";
 import type { FxRateMap, HorizonMonth } from "@/lib/otb-engine";
 import { brandMarketKey } from "@/lib/brandInventory";
 import { MARKET_CURRENCY } from "@/data/markets";
@@ -23,6 +23,7 @@ const DETAIL_HEADERS = [
   "Sell-Through % (derived)",
   "EoS Inv (forecast)",
   "Target EoS Inv",
+  "Months of Cover (open seasons)",
   "Buy Status",
   "Store OTB (native currency)",
   "Store OTB (USD equivalent)",
@@ -49,6 +50,7 @@ function detailRowToArray(r: OtbSeasonRow): (string | number | boolean)[] {
     Number((r.sellThroughPct * 100).toFixed(1)),
     round2(r.eosInventory),
     round2(r.targetEosInventory),
+    monthsOfCoverFor(r) === null ? "" : Number(monthsOfCoverFor(r)!.toFixed(1)),
     r.buyLocked ? "Bought" : "Open",
     r.buyLocked ? "" : round2(r.otb),
     r.buyLocked ? "" : r.otbUsd !== null ? round2(r.otbUsd) : "N/A (missing FX rate)",

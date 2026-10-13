@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import type { OtbSeasonRow } from "@/lib/results";
+import { monthsOfCoverFor, type OtbSeasonRow } from "@/lib/results";
 import { formatAmount, formatPercent } from "@/lib/format";
+import { SEASON_MONTHS } from "@/lib/otb-engine";
 
 interface ByStoreTableProps {
   rows: OtbSeasonRow[];
@@ -19,6 +20,7 @@ function eosTooltip(r: OtbSeasonRow): string | undefined {
 function sortValue(r: OtbSeasonRow, key: SortKey): string | number {
   if (key === "sosInventory") return sosBeforeTransfer(r);
   if (key === "transferAdjustment") return transferInOut(r);
+  if (key === "monthsCover") return monthsOfCoverFor(r) ?? -1; // bought seasons sort last ascending
   return r[key];
 }
 
@@ -62,7 +64,7 @@ type SortKey = keyof Pick<
   | "sellThroughPct"
   | "eosInventory"
   | "otb"
->;
+> | "monthsCover";
 
 const COLUMNS: { key: SortKey; label: string; kind: "text" | "amount" | "percent" }[] = [
   { key: "storeName", label: "Store", kind: "text" },
@@ -75,6 +77,7 @@ const COLUMNS: { key: SortKey; label: string; kind: "text" | "amount" | "percent
   { key: "totalAvailable", label: "Total Available", kind: "amount" },
   { key: "sellThroughPct", label: "Sell-Through", kind: "percent" },
   { key: "eosInventory", label: "EoS Inv", kind: "amount" },
+  { key: "monthsCover", label: "Months Cover", kind: "amount" },
   { key: "otb", label: "Store OTB", kind: "amount" },
 ];
 
@@ -216,6 +219,16 @@ export function ByStoreTable({ rows }: ByStoreTableProps) {
                   title={eosTooltip(r)}
                 >
                   {formatAmount(r.eosInventory)}
+                </td>
+                <td
+                  className="num-cell border-b border-slate-100 px-3 py-1.5"
+                  title={
+                    monthsOfCoverFor(r) === null
+                      ? undefined
+                      : `EoS ÷ next season's average monthly gross sales (${formatAmount(r.forwardGrossSales / SEASON_MONTHS)})`
+                  }
+                >
+                  {monthsOfCoverFor(r) === null ? <span className="text-slate-300">—</span> : monthsOfCoverFor(r)!.toFixed(1)}
                 </td>
                 <td
                   className={`num-cell border-b border-slate-100 px-3 py-1.5 font-semibold ${r.otb < 0 ? "text-red-600" : "text-slate-900"}`}

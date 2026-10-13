@@ -13,6 +13,7 @@ function makeRow(overrides: Partial<OtbSeasonRow> & Pick<OtbSeasonRow, "storeId"
     totalAvailable: 0,
     eosInventory: 0,
     targetEosInventory: 0,
+    forwardGrossSales: 0,
     buyLocked: false,
     onOrder: 0,
     overbought: overrides.otb < 0,

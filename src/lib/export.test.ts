@@ -156,7 +156,7 @@ describe("export/import round trip", () => {
   it("detail export shows SoS before the transfer and the transfer in its own column", () => {
     const base: OtbSeasonRow = {
       storeId: "x", storeName: "Supplier", brand: "B", channel: "Retail", market: "Taiwan", currency: "TWD", isOutlet: false,
-      netRevenueTarget: 800, grossSalesValue: 1000, discountValue: 200, totalAvailable: 0, eosInventory: 0, targetEosInventory: 0,
+      netRevenueTarget: 800, grossSalesValue: 1000, discountValue: 200, totalAvailable: 0, eosInventory: 0, targetEosInventory: 0, forwardGrossSales: 0,
       buyLocked: false, sosInventory: 0, onOrder: 100, otb: 0, balance: 0, overbought: false, sellThroughPct: 1, discountPct: 0.2,
       sosFloored: false, sosOverridden: false, otbUsd: null, transferAdjustment: 0,
     };

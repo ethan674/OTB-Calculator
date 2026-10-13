@@ -1,4 +1,4 @@
-import { aggregateByCurrency, type FxRateMap, type AggregateResult } from "@/lib/otb-engine";
+import { aggregateByCurrency, monthsOfCover, type FxRateMap, type AggregateResult } from "@/lib/otb-engine";
 
 export interface OtbResultStore {
   storeId: string;
@@ -21,6 +21,8 @@ export interface OtbSeasonRow extends OtbResultStore {
    * incoming (on-order is a locked buy). Rolls into the next season's SoS.
    */
   eosInventory: number;
+  /** Gross sales the ending inventory has to cover (next season's demand). */
+  forwardGrossSales: number;
   /** Ending inventory the open buy was sized to reach; 0 once incoming goods are filled in. */
   targetEosInventory: number;
   /** Incoming goods filled in: the buy is confirmed, so no sell-through target applies. */
@@ -44,6 +46,14 @@ export interface OtbSeasonRow extends OtbResultStore {
    * outlet whose need was covered by transfer; 0 otherwise.
    */
   transferAdjustment: number;
+}
+
+/**
+ * Months of next-season sales the forecast EoS covers — shown for open seasons only
+ * (a bought season has no target to compare it with).
+ */
+export function monthsOfCoverFor(r: OtbSeasonRow): number | null {
+  return r.buyLocked ? null : monthsOfCover(r.eosInventory, r.forwardGrossSales);
 }
 
 /** Per-store snapshot of the current (finalized) season's roll-forward into planning season 1. */
