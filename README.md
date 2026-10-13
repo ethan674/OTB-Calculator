@@ -74,7 +74,7 @@ Either way, the columns that follow are derived, never entered:
 
 - `Total Available = SOS Inventory + Incoming Goods` (inventory + incoming)
 - `EoS Inventory (forecast) = Target EoS + max(0, −balance)` — the target (open buys only) plus any overbought excess
-- `Months of Cover = EoS Inventory ÷ (Forward Gross Sales ÷ 6)` — how many months of next season's average sales the ending stock covers. Shown for open seasons only (a bought season has no target to compare it with). A store with no excess sits right on its sell-through target's cover (65% ≈ 3.2 months); an overbought store shows more.
+- `Months of Cover = EoS Inventory ÷ (Forward Gross Sales ÷ 6)` — how many months of next season's average sales the ending stock covers. Shown for every season. For an open buy, a store with no excess sits right on its sell-through target's cover (65% ≈ 3.2 months) and an overbought store shows more; for a bought season it shows how long the leftover stock lasts into the next one.
 - `Sell-Through % (derived) = min(Gross Sales, Available) ÷ Available`, where Available = Total Available + any open buy
 
 **Negative OTB is never clamped to zero.** It's displayed as-is (in red, parenthesized, e.g. `(1,234,567)`), flagged "Overbought" on the store row, and flows into aggregates unchanged.

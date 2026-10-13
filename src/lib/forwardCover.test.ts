@@ -69,11 +69,12 @@ describe("months of cover", () => {
     }
   });
 
-  it("an overbought open store shows more cover than the target, and a bought season shows none", () => {
+  it("an overbought store shows more cover than the target, whether the season is open or bought", () => {
     const pool = { [brandMarketKey("B", "Taiwan")]: 50_000_000 };
     const overbought = computePlan([store(100_000, 100_000)], pool, horizon, {});
     expect(monthsOfCoverFor(overbought.season2Rows[0])!).toBeGreaterThan((6 * 0.35) / 0.65);
+    // A bought season has no target, but its leftover stock still lasts some number of months.
     const bought = computePlan([store(100_000, 100_000, { s2OnOrder: 1 })], pool, horizon, {});
-    expect(monthsOfCoverFor(bought.season2Rows[0])).toBeNull();
+    expect(monthsOfCoverFor(bought.season2Rows[0])).toBeGreaterThan(0);
   });
 });

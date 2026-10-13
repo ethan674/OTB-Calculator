@@ -20,7 +20,7 @@ function eosTooltip(r: OtbSeasonRow): string | undefined {
 function sortValue(r: OtbSeasonRow, key: SortKey): string | number {
   if (key === "sosInventory") return sosBeforeTransfer(r);
   if (key === "transferAdjustment") return transferInOut(r);
-  if (key === "monthsCover") return monthsOfCoverFor(r) ?? -1; // bought seasons sort last ascending
+  if (key === "monthsCover") return monthsOfCoverFor(r) ?? -1; // no forward demand sorts last ascending
   return r[key];
 }
 

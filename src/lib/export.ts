@@ -23,7 +23,7 @@ const DETAIL_HEADERS = [
   "Sell-Through % (derived)",
   "EoS Inv (forecast)",
   "Target EoS Inv",
-  "Months of Cover (open seasons)",
+  "Months of Cover",
   "Buy Status",
   "Store OTB (native currency)",
   "Store OTB (USD equivalent)",

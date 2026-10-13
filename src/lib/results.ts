@@ -49,11 +49,12 @@ export interface OtbSeasonRow extends OtbResultStore {
 }
 
 /**
- * Months of next-season sales the forecast EoS covers — shown for open seasons only
- * (a bought season has no target to compare it with).
+ * Months of next-season sales the forecast EoS covers. Shown for every
+ * season: for an open buy it should sit on the sell-through target's cover,
+ * and for a bought season it shows how long the leftover stock lasts.
  */
 export function monthsOfCoverFor(r: OtbSeasonRow): number | null {
-  return r.buyLocked ? null : monthsOfCover(r.eosInventory, r.forwardGrossSales);
+  return monthsOfCover(r.eosInventory, r.forwardGrossSales);
 }
 
 /** Per-store snapshot of the current (finalized) season's roll-forward into planning season 1. */
