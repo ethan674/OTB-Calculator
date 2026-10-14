@@ -59,12 +59,23 @@ export function BrandInventoryEditor({ stores, brandInventory, onChange, brandOu
                     type="text"
                     inputMode="decimal"
                     defaultValue={brandInventory[g.key] ?? ""}
+                    placeholder="enter 0 if none"
                     onBlur={(e) => {
-                      const num = Number(e.target.value);
-                      if (Number.isFinite(num)) onChange(g.key, num);
+                      const raw = e.target.value.trim();
+                      const num = Number(raw);
+                      if (raw !== "" && Number.isFinite(num)) onChange(g.key, num);
                     }}
-                    className="num-cell w-full min-w-[160px] rounded border border-slate-200 px-2 py-1 text-sm outline-none focus:border-slate-400"
+                    className={`num-cell w-full min-w-[160px] rounded border px-2 py-1 text-sm outline-none ${
+                      brandInventory[g.key] === undefined
+                        ? "border-amber-400 bg-amber-50 placeholder:text-amber-600/70 focus:border-amber-500"
+                        : brandInventory[g.key] < 0
+                          ? "border-red-400 bg-red-50"
+                          : "border-slate-200 focus:border-slate-400"
+                    }`}
                   />
+                  {brandInventory[g.key] !== undefined && brandInventory[g.key] < 0 && (
+                    <p className="mt-0.5 text-left text-[10px] text-red-600">Can't be negative.</p>
+                  )}
                 </td>
                 <td className="border-b border-slate-100 px-3 py-1.5 text-slate-600">{g.currency}</td>
                 <td className="border-b border-slate-100 px-3 py-1.5">

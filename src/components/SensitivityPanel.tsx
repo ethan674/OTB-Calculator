@@ -30,7 +30,6 @@ export function SensitivityPanel({ stores, brandInventory, brandOutlook, horizon
 
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-semibold text-slate-700">Sensitivity — {seasonLabel} Total OTB</h3>
       <p className="text-xs text-slate-500">
         How soft the number is. Each cell re-runs the whole plan with every open store's target sell-through shifted by
         the row's points and every planning-season sales forecast scaled by the column's %. Stores already bought for

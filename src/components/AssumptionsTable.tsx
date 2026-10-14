@@ -7,6 +7,8 @@ interface AssumptionsTableProps {
   stores: CalcStore[];
   onHandAllocation: Record<string, number>;
   onFieldChange: (storeId: string, field: string, value: number | null) => void;
+  season1Label: string;
+  season2Label: string;
 }
 
 interface ColumnDef {
@@ -56,8 +58,11 @@ function Cell({
   const [text, setText] = useState(displayValue);
 
   const numericForValidation = isPercent ? Number(text) : null;
-  const validation: FieldValidation | null =
+  let validation: FieldValidation | null =
     col.validate && text !== "" && !Number.isNaN(numericForValidation) ? col.validate(numericForValidation as number) : null;
+  if (!isPercent && text.trim() !== "" && (Number.isNaN(Number(text)) || Number(text) < 0)) {
+    validation = { errors: [Number.isNaN(Number(text)) ? "Enter a number." : "Can't be negative."], warnings: [] };
+  }
 
   function commit(nextText: string) {
     if (nextText.trim() === "") {
@@ -99,11 +104,16 @@ function Cell({
           />
         )}
       </div>
+      {!locked && (hasError || hasWarning) && (
+        <p className={`mt-0.5 max-w-[150px] text-left text-[10px] leading-tight ${hasError ? "text-red-600" : "text-amber-700"}`}>
+          {[...(validation?.errors ?? []), ...(validation?.warnings ?? [])][0]}
+        </p>
+      )}
     </td>
   );
 }
 
-export function AssumptionsTable({ stores, onHandAllocation, onFieldChange }: AssumptionsTableProps) {
+export function AssumptionsTable({ stores, onHandAllocation, onFieldChange, season1Label, season2Label }: AssumptionsTableProps) {
   if (stores.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
@@ -162,6 +172,23 @@ export function AssumptionsTable({ stores, onHandAllocation, onFieldChange }: As
                   </div>
                   <div className="text-xs text-slate-400">
                     {store.market} · {store.currency}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {store.storeType === "Outlet" ? (
+                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700" title="Outlets don't place buys; their need is covered by transfer">
+                        buys via transfer
+                      </span>
+                    ) : (
+                      ([[season1Label, store.s1OnOrder], [season2Label, store.s2OnOrder]] as const).map(([label, onOrder]) => (
+                        <span
+                          key={label}
+                          title={onOrder > 0 ? "Incoming goods are filled in: the buy is confirmed, so the OTB is 0" : "No incoming goods yet: the buy is still open and gets an OTB"}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${onOrder > 0 ? "bg-slate-200 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}
+                        >
+                          {label} {onOrder > 0 ? "bought" : "open"}
+                        </span>
+                      ))
+                    )}
                   </div>
                 </td>
                 <td className="num-cell border-b border-slate-200 bg-slate-50 px-2 py-2 text-slate-600" title="Derived from Brand Inventory tab">

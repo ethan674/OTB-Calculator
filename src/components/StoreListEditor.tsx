@@ -9,16 +9,32 @@ interface StoreListEditorProps {
   onRemoveStore: (storeId: string) => void;
 }
 
-function TextCell({ value, onChange, width = "w-32" }: { value: string; onChange: (v: string) => void; width?: string }) {
+function TextCell({
+  value,
+  onChange,
+  width = "w-32",
+  required,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  width?: string;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  const missing = required && !value.trim();
   return (
     <input
       type="text"
       defaultValue={value}
-      title={value}
+      title={missing ? "Required" : value}
+      placeholder={placeholder}
       onBlur={(e) => {
         if (e.target.value !== value) onChange(e.target.value);
       }}
-      className={`${width} rounded border border-slate-200 px-2 py-1 text-sm outline-none focus:border-slate-400`}
+      className={`${width} rounded border px-2 py-1 text-sm outline-none ${
+        missing ? "border-amber-400 bg-amber-50 placeholder:text-amber-600/70 focus:border-amber-500" : "border-slate-200 focus:border-slate-400"
+      }`}
     />
   );
 }
@@ -53,10 +69,10 @@ export function StoreListEditor({ stores, onFieldChange, onMarketChange, onAddSt
             {stores.map((store, i) => (
               <tr key={store.id} className={i % 2 === 1 ? "bg-slate-50/50" : ""}>
                 <td className="border-b border-slate-100 px-3 py-1.5">
-                  <TextCell value={store.storeName} onChange={(v) => onFieldChange(store.id, "storeName", v)} width="w-64" />
+                  <TextCell value={store.storeName} onChange={(v) => onFieldChange(store.id, "storeName", v)} width="w-64" required placeholder="Store name (required)" />
                 </td>
                 <td className="border-b border-slate-100 px-3 py-1.5">
-                  <TextCell value={store.brand} onChange={(v) => onFieldChange(store.id, "brand", v)} width="w-32" />
+                  <TextCell value={store.brand} onChange={(v) => onFieldChange(store.id, "brand", v)} width="w-32" required placeholder="Brand (required)" />
                 </td>
                 <td className="border-b border-slate-100 px-3 py-1.5">
                   <select
@@ -110,7 +126,7 @@ export function StoreListEditor({ stores, onFieldChange, onMarketChange, onAddSt
       </div>
       <p className="text-xs text-slate-400">
         Currency follows the market automatically. Add or edit stores here, then fill in the forecast and assumptions in
-        the other tabs. Nothing is saved — refreshing the page resets everything.
+        the other tabs. Your work autosaves in this browser.
       </p>
     </div>
   );

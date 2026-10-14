@@ -3,13 +3,11 @@ import { formatAmount, formatPercent } from "@/lib/format";
 
 interface CurrentSeasonTableProps {
   rows: CurrentSeasonRow[];
-  currentLabel: string;
 }
 
-export function CurrentSeasonTable({ rows, currentLabel }: CurrentSeasonTableProps) {
+export function CurrentSeasonTable({ rows }: CurrentSeasonTableProps) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-semibold text-slate-700">Current Season — {currentLabel}</h3>
       <p className="text-xs text-slate-500">
         The roll-forward from where each store stands today into its Season 1 starting inventory.
       </p>
